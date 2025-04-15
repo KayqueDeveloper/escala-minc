@@ -54,10 +54,10 @@ func main() {
         // Configurar rotas
         setupRoutes(router)
 
-        // Obter porta do ambiente ou usar padrão 5000
+        // Obter porta do ambiente ou usar padrão 5001 para evitar conflito com Node.js
         port := os.Getenv("PORT")
         if port == "" {
-                port = "5000"
+                port = "5001"
         }
 
         // Iniciar servidor

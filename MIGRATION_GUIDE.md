@@ -46,6 +46,24 @@ Durante a migração, você pode executar ambos os servidores em paralelo:
    ./run.sh     # Compila e inicia o servidor Go
    ```
 
+## Testando a Compatibilidade das APIs
+
+Para garantir que a API Go seja compatível com a API Node.js existente, criamos scripts de teste:
+
+1. **Teste Básico dos Handlers:**
+   ```bash
+   cd go-server
+   go run test_handlers.go  # Testa se os handlers respondem corretamente
+   ```
+
+2. **Comparação de Respostas:**
+   ```bash
+   cd go-server
+   ./compare_endpoints.sh   # Compara as respostas das APIs Node.js e Go
+   ```
+
+Esses testes ajudam a verificar se a implementação em Go está funcionando corretamente e se produz resultados equivalentes à implementação Node.js existente.
+
 ## Atualizando a Proxy de API
 
 Para redirecionar chamadas específicas para o servidor Go:
