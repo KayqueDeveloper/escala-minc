@@ -27,6 +27,8 @@ import {
   type Notification,
   type InsertNotification
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, and, desc, gte, lt, sql, count } from "drizzle-orm";
 
 export interface IStorage {
   // User methods
@@ -1119,4 +1121,973 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export class DatabaseStorage implements IStorage {
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
+    return user;
+  }
+  
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users);
+  }
+  
+  async getUsersByRole(role: string): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.role, role));
+  }
+
+  // Team methods
+  async getTeam(id: number): Promise<Team | undefined> {
+    const [team] = await db.select().from(teams).where(eq(teams.id, id));
+    return team || undefined;
+  }
+  
+  async getAllTeams(): Promise<Team[]> {
+    return await db.select().from(teams);
+  }
+  
+  async getAllTeamsWithRoles(): Promise<any[]> {
+    const allTeams = await db.select().from(teams);
+    const result = [];
+    
+    for (const team of allTeams) {
+      const teamRoles = await db.select().from(roles).where(eq(roles.teamId, team.id));
+      
+      // For each role, count volunteers
+      const rolesWithCount = await Promise.all(
+        teamRoles.map(async (role) => {
+          const volunteerCount = await db
+            .select({ count: db.fn.count() })
+            .from(volunteers)
+            .where(eq(volunteers.roleId, role.id));
+          
+          return {
+            ...role,
+            volunteerCount: Number(volunteerCount[0].count) || 0
+          };
+        })
+      );
+      
+      // Count volunteers in this team
+      const volunteerCount = await db
+        .select({ count: db.fn.count() })
+        .from(volunteers)
+        .where(eq(volunteers.teamId, team.id));
+      
+      // Get team leader if exists
+      let leader = undefined;
+      if (team.leaderId) {
+        const [leaderUser] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, team.leaderId));
+        
+        if (leaderUser) {
+          leader = {
+            id: leaderUser.id,
+            name: leaderUser.name,
+            avatarUrl: undefined
+          };
+        }
+      }
+      
+      result.push({
+        ...team,
+        roles: rolesWithCount,
+        volunteerCount: Number(volunteerCount[0].count) || 0,
+        leader
+      });
+    }
+    
+    return result;
+  }
+  
+  async createTeam(insertTeam: InsertTeam): Promise<Team> {
+    const [team] = await db
+      .insert(teams)
+      .values(insertTeam)
+      .returning();
+    return team;
+  }
+  
+  // Role methods
+  async getRole(id: number): Promise<Role | undefined> {
+    const [role] = await db.select().from(roles).where(eq(roles.id, id));
+    return role || undefined;
+  }
+  
+  async getAllRoles(): Promise<Role[]> {
+    return await db.select().from(roles);
+  }
+  
+  async getRolesByTeam(teamId: number): Promise<Role[]> {
+    return await db.select().from(roles).where(eq(roles.teamId, teamId));
+  }
+  
+  async createRole(insertRole: InsertRole): Promise<Role> {
+    const [role] = await db
+      .insert(roles)
+      .values(insertRole)
+      .returning();
+    return role;
+  }
+  
+  // Volunteer methods
+  async getVolunteer(id: number): Promise<Volunteer | undefined> {
+    const [volunteer] = await db.select().from(volunteers).where(eq(volunteers.id, id));
+    return volunteer || undefined;
+  }
+  
+  async getAllVolunteers(): Promise<Volunteer[]> {
+    return await db.select().from(volunteers);
+  }
+  
+  async getAllVolunteersWithTeams(): Promise<any[]> {
+    const allVolunteers = await db.select().from(volunteers);
+    const result = [];
+    
+    // Usar um mapa para agrupar voluntários pelo usuário
+    const volunteersByUser = new Map();
+    
+    for (const volunteer of allVolunteers) {
+      // Obter informações do usuário, equipe e função
+      const [user] = await db.select().from(users).where(eq(users.id, volunteer.userId));
+      const [team] = await db.select().from(teams).where(eq(teams.id, volunteer.teamId));
+      const [role] = await db.select().from(roles).where(eq(roles.id, volunteer.roleId));
+      
+      if (!user || !team || !role) continue;
+      
+      // Se o usuário já existe no mapa, adicione essa equipe às equipes existentes
+      if (volunteersByUser.has(user.id)) {
+        volunteersByUser.get(user.id).teams.push({
+          id: team.id,
+          name: team.name,
+          role: role.name,
+          roleId: role.id
+        });
+      } else {
+        // Caso contrário, crie uma nova entrada para este usuário
+        volunteersByUser.set(user.id, {
+          id: volunteer.id,
+          userId: user.id,
+          name: user.name,
+          email: user.email,
+          avatarUrl: undefined,
+          isTrainee: volunteer.isTrainee,
+          hasConflicts: false, // Será calculado com base nas programações
+          teams: [{
+            id: team.id,
+            name: team.name,
+            role: role.name,
+            roleId: role.id
+          }]
+        });
+      }
+    }
+    
+    // Converter o mapa em uma matriz
+    for (const volunteer of volunteersByUser.values()) {
+      result.push(volunteer);
+    }
+    
+    return result;
+  }
+  
+  async getVolunteersByTeam(teamId: number): Promise<Volunteer[]> {
+    return await db.select().from(volunteers).where(eq(volunteers.teamId, teamId));
+  }
+  
+  async createVolunteer(insertVolunteer: InsertVolunteer): Promise<Volunteer> {
+    const [volunteer] = await db
+      .insert(volunteers)
+      .values(insertVolunteer)
+      .returning();
+    return volunteer;
+  }
+  
+  // Event methods
+  async getEvent(id: number): Promise<Event | undefined> {
+    const [event] = await db.select().from(events).where(eq(events.id, id));
+    return event || undefined;
+  }
+  
+  async getAllEvents(): Promise<Event[]> {
+    return await db.select().from(events);
+  }
+  
+  async getUpcomingEvents(): Promise<any[]> {
+    const now = new Date();
+    
+    // Obter eventos futuros, ordenados por data
+    const upcomingEvents = await db
+      .select()
+      .from(events)
+      .where(gt(events.eventDate, now))
+      .orderBy(events.eventDate)
+      .limit(5);
+    
+    const result = [];
+    
+    for (const event of upcomingEvents) {
+      // Obter programações para este evento
+      const eventSchedules = await db
+        .select()
+        .from(schedules)
+        .where(eq(schedules.eventId, event.id));
+      
+      // Obter equipes únicas envolvidas neste evento
+      const teamIds = new Set();
+      
+      for (const schedule of eventSchedules) {
+        const [volunteer] = await db
+          .select()
+          .from(volunteers)
+          .where(eq(volunteers.id, schedule.volunteerId));
+        
+        if (volunteer) {
+          teamIds.add(volunteer.teamId);
+        }
+      }
+      
+      // Obter voluntários designados para este evento
+      const volunteers = [];
+      
+      for (const schedule of eventSchedules) {
+        const [volunteer] = await db
+          .select()
+          .from(volunteers)
+          .where(eq(volunteers.id, schedule.volunteerId));
+        
+        if (!volunteer) continue;
+        
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, volunteer.userId));
+        
+        if (!user) continue;
+        
+        volunteers.push({
+          id: volunteer.id,
+          name: user.name,
+          avatarUrl: undefined
+        });
+      }
+      
+      // Determinar o status com base na contagem de voluntários e conflitos
+      let status = 'complete';
+      if (volunteers.length < 5) {
+        status = 'incomplete';
+      } else if (volunteers.length < 10) {
+        status = 'warning';
+      }
+      
+      result.push({
+        ...event,
+        teamCount: teamIds.size,
+        volunteers,
+        status
+      });
+    }
+    
+    return result;
+  }
+  
+  async createEvent(insertEvent: InsertEvent): Promise<Event> {
+    const [event] = await db
+      .insert(events)
+      .values(insertEvent)
+      .returning();
+    return event;
+  }
+  
+  // Schedule methods
+  async getSchedule(id: number): Promise<Schedule | undefined> {
+    const [schedule] = await db.select().from(schedules).where(eq(schedules.id, id));
+    return schedule || undefined;
+  }
+  
+  async getAllSchedules(): Promise<any[]> {
+    const allSchedules = await db.select().from(schedules);
+    const result = [];
+    
+    for (const schedule of allSchedules) {
+      const [event] = await db
+        .select()
+        .from(events)
+        .where(eq(events.id, schedule.eventId));
+      
+      if (!event) continue;
+      
+      const [volunteer] = await db
+        .select()
+        .from(volunteers)
+        .where(eq(volunteers.id, schedule.volunteerId));
+      
+      if (!volunteer) continue;
+      
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, volunteer.userId));
+      
+      if (!user) continue;
+      
+      const [team] = await db
+        .select()
+        .from(teams)
+        .where(eq(teams.id, volunteer.teamId));
+      
+      if (!team) continue;
+      
+      const [role] = await db
+        .select()
+        .from(roles)
+        .where(eq(roles.id, volunteer.roleId));
+      
+      if (!role) continue;
+      
+      // Verificar se há conflitos
+      const hasConflict = await this.checkSchedulingConflict(event.id, volunteer.id);
+      
+      result.push({
+        id: schedule.id,
+        title: event.title,
+        description: event.description,
+        location: event.location,
+        eventDate: event.eventDate,
+        status: schedule.status,
+        volunteer: {
+          id: volunteer.id,
+          name: user.name,
+          avatarUrl: undefined
+        },
+        team: {
+          id: team.id,
+          name: team.name
+        },
+        role: {
+          id: role.id,
+          name: role.name
+        },
+        hasConflict
+      });
+    }
+    
+    return result;
+  }
+  
+  async getSchedulesByEvent(eventId: number): Promise<any[]> {
+    const eventSchedules = await db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.eventId, eventId));
+    
+    const [event] = await db
+      .select()
+      .from(events)
+      .where(eq(events.id, eventId));
+    
+    if (!event) return [];
+    
+    const result = [];
+    
+    for (const schedule of eventSchedules) {
+      const [volunteer] = await db
+        .select()
+        .from(volunteers)
+        .where(eq(volunteers.id, schedule.volunteerId));
+      
+      if (!volunteer) continue;
+      
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, volunteer.userId));
+      
+      if (!user) continue;
+      
+      const [team] = await db
+        .select()
+        .from(teams)
+        .where(eq(teams.id, volunteer.teamId));
+      
+      if (!team) continue;
+      
+      const [role] = await db
+        .select()
+        .from(roles)
+        .where(eq(roles.id, volunteer.roleId));
+      
+      if (!role) continue;
+      
+      // Verificar conflitos
+      const hasConflict = await this.checkSchedulingConflict(eventId, volunteer.id);
+      
+      result.push({
+        id: schedule.id,
+        eventId: event.id,
+        title: event.title,
+        description: event.description,
+        location: event.location,
+        eventDate: event.eventDate,
+        status: schedule.status,
+        volunteer: {
+          id: volunteer.id,
+          name: user.name,
+          avatarUrl: undefined
+        },
+        team: {
+          id: team.id,
+          name: team.name
+        },
+        role: {
+          id: role.id,
+          name: role.name
+        },
+        hasConflict
+      });
+    }
+    
+    return result;
+  }
+  
+  async getSchedulesByVolunteer(volunteerId: number): Promise<Schedule[]> {
+    return await db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.volunteerId, volunteerId));
+  }
+  
+  async checkSchedulingConflict(eventId: number, volunteerId: number): Promise<boolean> {
+    // Obter o evento para verificar a data
+    const [event] = await db
+      .select()
+      .from(events)
+      .where(eq(events.id, eventId));
+    
+    if (!event) return false;
+    
+    // Obter todos os outros eventos que ocorrem no mesmo dia
+    const sameTimeEvents = await db
+      .select()
+      .from(events)
+      .where(
+        and(
+          eq(events.eventDate, event.eventDate),
+          eq(events.location, event.location),
+          event.id !== events.id
+        )
+      );
+    
+    if (sameTimeEvents.length === 0) return false;
+    
+    // Verificar se o voluntário está programado para esses eventos
+    const eventIds = sameTimeEvents.map(e => e.id);
+    
+    const conflictingSchedules = await db
+      .select()
+      .from(schedules)
+      .where(
+        and(
+          eq(schedules.volunteerId, volunteerId),
+          inArray(schedules.eventId, eventIds)
+        )
+      );
+    
+    return conflictingSchedules.length > 0;
+  }
+  
+  async createSchedule(insertSchedule: InsertSchedule): Promise<Schedule> {
+    const [schedule] = await db
+      .insert(schedules)
+      .values(insertSchedule)
+      .returning();
+    return schedule;
+  }
+  
+  async createInitialSchedulesForEvent(eventId: number, teamId: number): Promise<void> {
+    // Criar programações iniciais vazias para cada função da equipe
+    const teamRoles = await this.getRolesByTeam(teamId);
+    
+    for (const role of teamRoles) {
+      // Para cada função, criar uma entrada vazia de programação
+      await this.createSchedule({
+        eventId,
+        volunteerId: 0, // Placeholder, será atualizado quando um voluntário for atribuído
+        status: 'incomplete',
+        createdById: 1, // Administrador por padrão
+        traineePartnerId: null
+      });
+    }
+  }
+  
+  // Availability rule methods
+  async getAvailabilityRule(id: number): Promise<AvailabilityRule | undefined> {
+    const [rule] = await db
+      .select()
+      .from(availabilityRules)
+      .where(eq(availabilityRules.id, id));
+    return rule || undefined;
+  }
+  
+  async getAllAvailabilityRules(): Promise<AvailabilityRule[]> {
+    return await db.select().from(availabilityRules);
+  }
+  
+  async getAvailabilityRulesByVolunteer(volunteerId: number): Promise<AvailabilityRule[]> {
+    return await db
+      .select()
+      .from(availabilityRules)
+      .where(eq(availabilityRules.volunteerId, volunteerId));
+  }
+  
+  async createAvailabilityRule(insertRule: InsertAvailabilityRule): Promise<AvailabilityRule> {
+    const [rule] = await db
+      .insert(availabilityRules)
+      .values(insertRule)
+      .returning();
+    return rule;
+  }
+  
+  // Swap request methods
+  async getSwapRequest(id: number): Promise<SwapRequest | undefined> {
+    const [swapRequest] = await db
+      .select()
+      .from(swapRequests)
+      .where(eq(swapRequests.id, id));
+    return swapRequest || undefined;
+  }
+  
+  async getAllSwapRequests(): Promise<any[]> {
+    const allSwapRequests = await db
+      .select()
+      .from(swapRequests)
+      .orderBy(desc(swapRequests.createdAt));
+    
+    const result = [];
+    
+    for (const swapRequest of allSwapRequests) {
+      // Obter informações do programador solicitante
+      const [requestorSchedule] = await db
+        .select()
+        .from(schedules)
+        .where(eq(schedules.id, swapRequest.requestorScheduleId));
+      
+      if (!requestorSchedule) continue;
+      
+      // Obter informações do voluntário solicitante
+      const [requestor] = await db
+        .select()
+        .from(volunteers)
+        .where(eq(volunteers.id, requestorSchedule.volunteerId));
+      
+      if (!requestor) continue;
+      
+      // Obter usuário
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, requestor.userId));
+      
+      if (!user) continue;
+      
+      // Obter informações da equipe e função
+      const [team] = await db
+        .select()
+        .from(teams)
+        .where(eq(teams.id, requestor.teamId));
+      
+      if (!team) continue;
+      
+      const [role] = await db
+        .select()
+        .from(roles)
+        .where(eq(roles.id, requestor.roleId));
+      
+      if (!role) continue;
+      
+      // Obter informações do evento
+      const [event] = await db
+        .select()
+        .from(events)
+        .where(eq(events.id, requestorSchedule.eventId));
+      
+      if (!event) continue;
+      
+      // Formatar o detalhamento da troca
+      const formattedDate = new Date(event.eventDate).toLocaleDateString('pt-BR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      
+      const swapDetails = `${event.title} - ${formattedDate}`;
+      
+      result.push({
+        id: swapRequest.id,
+        requestor: {
+          id: requestor.id,
+          name: user.name,
+          avatarUrl: undefined
+        },
+        teamName: team.name,
+        roleName: role.name,
+        swapDetails,
+        reason: swapRequest.reason,
+        status: swapRequest.status,
+        isNew: true // Sempre marcado como novo no frontend
+      });
+    }
+    
+    return result;
+  }
+  
+  async createSwapRequest(insertSwapRequest: InsertSwapRequest): Promise<SwapRequest> {
+    const [swapRequest] = await db
+      .insert(swapRequests)
+      .values(insertSwapRequest)
+      .returning();
+    return swapRequest;
+  }
+  
+  async approveSwapRequest(id: number): Promise<SwapRequest> {
+    const [swapRequest] = await db
+      .update(swapRequests)
+      .set({ status: 'approved' })
+      .where(eq(swapRequests.id, id))
+      .returning();
+    
+    // Atualizar programações se necessário
+    // Implementar lógica de troca de voluntários
+    
+    return swapRequest;
+  }
+  
+  async rejectSwapRequest(id: number): Promise<SwapRequest> {
+    const [swapRequest] = await db
+      .update(swapRequests)
+      .set({ status: 'rejected' })
+      .where(eq(swapRequests.id, id))
+      .returning();
+    
+    return swapRequest;
+  }
+  
+  // Notification methods
+  async getNotification(id: number): Promise<Notification | undefined> {
+    const [notification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.id, id));
+    return notification || undefined;
+  }
+  
+  async getAllNotifications(): Promise<any[]> {
+    const allNotifications = await db
+      .select()
+      .from(notifications)
+      .orderBy(desc(notifications.createdAt));
+    
+    return allNotifications.map(notification => ({
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      read: notification.read,
+      createdAt: notification.createdAt
+    }));
+  }
+  
+  async createNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const [notification] = await db
+      .insert(notifications)
+      .values(insertNotification)
+      .returning();
+    return notification;
+  }
+  
+  async markNotificationAsRead(id: number): Promise<Notification> {
+    const [notification] = await db
+      .update(notifications)
+      .set({ read: true })
+      .where(eq(notifications.id, id))
+      .returning();
+    
+    return notification;
+  }
+  
+  async createSwapRequestNotification(userId: number, swapRequestId: number): Promise<Notification> {
+    const notification: InsertNotification = {
+      title: "Nova solicitação de troca",
+      message: `Você recebeu uma nova solicitação de troca de escala. Por favor, verifique a aba de solicitações.`,
+      type: "swap_request",
+      userId,
+      relatedId: swapRequestId
+    };
+    
+    return await this.createNotification(notification);
+  }
+  
+  async createSwapRequestNotificationForLeader(scheduleId: number, swapRequestId: number): Promise<Notification> {
+    // Obter informações da programação
+    const [schedule] = await db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.id, scheduleId));
+    
+    if (!schedule) throw new Error("Programação não encontrada");
+    
+    // Obter informações do voluntário
+    const [volunteer] = await db
+      .select()
+      .from(volunteers)
+      .where(eq(volunteers.id, schedule.volunteerId));
+    
+    if (!volunteer) throw new Error("Voluntário não encontrado");
+    
+    // Obter informações da equipe
+    const [team] = await db
+      .select()
+      .from(teams)
+      .where(eq(teams.id, volunteer.teamId));
+    
+    if (!team || !team.leaderId) throw new Error("Líder de equipe não encontrado");
+    
+    // Criar notificação para o líder da equipe
+    const notification: InsertNotification = {
+      title: "Nova solicitação de troca na sua equipe",
+      message: `Um voluntário da sua equipe solicitou uma troca de escala. Por favor, verifique a aba de solicitações.`,
+      type: "swap_request",
+      userId: team.leaderId,
+      relatedId: swapRequestId
+    };
+    
+    return await this.createNotification(notification);
+  }
+  
+  async createConflictNotification(volunteerId: number, eventId: number): Promise<Notification> {
+    // Obter informações do voluntário
+    const [volunteer] = await db
+      .select()
+      .from(volunteers)
+      .where(eq(volunteers.id, volunteerId));
+    
+    if (!volunteer) throw new Error("Voluntário não encontrado");
+    
+    // Obter informações do usuário
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, volunteer.userId));
+    
+    if (!user) throw new Error("Usuário não encontrado");
+    
+    // Obter informações do evento
+    const [event] = await db
+      .select()
+      .from(events)
+      .where(eq(events.id, eventId));
+    
+    if (!event) throw new Error("Evento não encontrado");
+    
+    // Obter informações da equipe
+    const [team] = await db
+      .select()
+      .from(teams)
+      .where(eq(teams.id, volunteer.teamId));
+    
+    if (!team || !team.leaderId) throw new Error("Líder de equipe não encontrado");
+    
+    // Criar notificação para o voluntário
+    const volunteerNotification: InsertNotification = {
+      title: "Conflito de programação detectado",
+      message: `Foi detectado um conflito em sua programação para o evento "${event.title}". Por favor, entre em contato com seu líder de equipe.`,
+      type: "conflict",
+      userId: user.id,
+      relatedId: eventId
+    };
+    
+    await this.createNotification(volunteerNotification);
+    
+    // Criar notificação para o líder da equipe
+    const leaderNotification: InsertNotification = {
+      title: "Conflito de programação em sua equipe",
+      message: `Foi detectado um conflito de programação para o voluntário ${user.name} no evento "${event.title}". Por favor, resolva este conflito.`,
+      type: "conflict",
+      userId: team.leaderId,
+      relatedId: eventId
+    };
+    
+    return await this.createNotification(leaderNotification);
+  }
+  
+  // Conflict detection methods
+  async getAllConflicts(): Promise<any[]> {
+    // Obter todos os eventos
+    const allEvents = await db.select().from(events);
+    
+    const conflicts = [];
+    
+    // Para cada evento, verificar conflitos
+    for (const event of allEvents) {
+      // Encontrar outros eventos no mesmo horário
+      const sameTimeEvents = allEvents.filter(e => 
+        e.id !== event.id && 
+        e.eventDate.getTime() === event.eventDate.getTime() &&
+        e.location === event.location
+      );
+      
+      if (sameTimeEvents.length === 0) continue;
+      
+      const sameTimeEventIds = sameTimeEvents.map(e => e.id);
+      
+      // Obter todas as programações para este evento
+      const eventSchedules = await db
+        .select()
+        .from(schedules)
+        .where(eq(schedules.eventId, event.id));
+      
+      // Para cada programação, verificar se o voluntário está em outro evento ao mesmo tempo
+      for (const schedule of eventSchedules) {
+        const conflictingSchedules = await db
+          .select()
+          .from(schedules)
+          .where(
+            and(
+              eq(schedules.volunteerId, schedule.volunteerId),
+              inArray(schedules.eventId, sameTimeEventIds)
+            )
+          );
+        
+        if (conflictingSchedules.length === 0) continue;
+        
+        // Obter informações do voluntário
+        const [volunteer] = await db
+          .select()
+          .from(volunteers)
+          .where(eq(volunteers.id, schedule.volunteerId));
+        
+        if (!volunteer) continue;
+        
+        // Obter informações do usuário
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, volunteer.userId));
+        
+        if (!user) continue;
+        
+        // Obter todas as atribuições deste voluntário (incluindo a atual e as conflitantes)
+        const allAssignments = [
+          { scheduleId: schedule.id, eventId: event.id },
+          ...conflictingSchedules.map(s => ({ scheduleId: s.id, eventId: s.eventId }))
+        ];
+        
+        // Obter informações da equipe e função para cada atribuição
+        const assignments = [];
+        
+        for (const assignment of allAssignments) {
+          const [volunteer] = await db
+            .select()
+            .from(volunteers)
+            .where(eq(volunteers.id, schedule.volunteerId));
+          
+          if (!volunteer) continue;
+          
+          const [team] = await db
+            .select()
+            .from(teams)
+            .where(eq(teams.id, volunteer.teamId));
+          
+          if (!team) continue;
+          
+          const [role] = await db
+            .select()
+            .from(roles)
+            .where(eq(roles.id, volunteer.roleId));
+          
+          if (!role) continue;
+          
+          assignments.push({
+            teamId: team.id,
+            teamName: team.name,
+            roleId: role.id,
+            roleName: role.name,
+            colorClass: ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-purple-500'][Math.floor(Math.random() * 4)]
+          });
+        }
+        
+        conflicts.push({
+          id: schedule.id,
+          volunteer: {
+            id: volunteer.id,
+            name: user.name,
+            email: user.email,
+            avatarUrl: undefined
+          },
+          eventDate: event.eventDate,
+          location: event.location,
+          assignments
+        });
+      }
+    }
+    
+    return conflicts;
+  }
+  
+  // Dashboard stats
+  async getDashboardStats(): Promise<any> {
+    // Contar voluntários
+    const volunteerCount = await db
+      .select({ count: db.fn.count() })
+      .from(volunteers);
+    
+    // Contar equipes
+    const teamCount = await db
+      .select({ count: db.fn.count() })
+      .from(teams);
+    
+    // Contar serviços mensais
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    const monthlyServiceCount = await db
+      .select({ count: db.fn.count() })
+      .from(events)
+      .where(
+        and(
+          gte(events.eventDate, startOfMonth),
+          lte(events.eventDate, endOfMonth)
+        )
+      );
+    
+    // Contar conflitos
+    const conflicts = await this.getAllConflicts();
+    
+    return {
+      volunteerCount: Number(volunteerCount[0].count) || 0,
+      teamCount: Number(teamCount[0].count) || 0,
+      monthlyServiceCount: Number(monthlyServiceCount[0].count) || 0,
+      conflictCount: conflicts.length
+    };
+  }
+}
+
+// Use DatabaseStorage instead of MemStorage
+export const storage = new DatabaseStorage();
