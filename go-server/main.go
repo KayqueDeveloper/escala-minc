@@ -93,13 +93,46 @@ func setupRoutes(router *gin.Engine) {
                 protectedRoutes.GET("/teams/:id", handlers.GetTeam)
                 protectedRoutes.GET("/teams/with-roles", handlers.GetTeamsWithRoles)
                 
+                // Rotas de eventos
+                protectedRoutes.GET("/events", handlers.GetEvents)
+                protectedRoutes.GET("/events/:id", handlers.GetEvent)
+                protectedRoutes.GET("/events/upcoming", handlers.GetUpcomingEvents)
+                
+                // Rotas de voluntários
+                protectedRoutes.GET("/volunteers", handlers.GetVolunteers)
+                protectedRoutes.GET("/volunteers/:id", handlers.GetVolunteer)
+                protectedRoutes.GET("/volunteers/team/:teamId", handlers.GetVolunteersByTeam)
+                protectedRoutes.GET("/volunteers/with-teams", handlers.GetAllVolunteersWithTeams)
+                
+                // Rotas de agendamentos
+                protectedRoutes.GET("/schedules", handlers.GetSchedules)
+                protectedRoutes.GET("/schedules/:id", handlers.GetSchedule)
+                protectedRoutes.GET("/schedules/event/:eventId", handlers.GetSchedulesByEvent)
+                protectedRoutes.GET("/schedules/volunteer/:volunteerId", handlers.GetSchedulesByVolunteer)
+                
                 // Rotas protegidas para admins/líderes
                 adminRoutes := protectedRoutes.Group("")
                 adminRoutes.Use(utils.IsAdminOrLeader())
                 {
+                        // Gerenciamento de equipes
                         adminRoutes.POST("/teams", handlers.CreateTeam)
                         adminRoutes.PUT("/teams/:id", handlers.UpdateTeam)
                         adminRoutes.DELETE("/teams/:id", handlers.DeleteTeam)
+                        
+                        // Gerenciamento de eventos
+                        adminRoutes.POST("/events", handlers.CreateEvent)
+                        adminRoutes.PUT("/events/:id", handlers.UpdateEvent)
+                        adminRoutes.DELETE("/events/:id", handlers.DeleteEvent)
+                        
+                        // Gerenciamento de voluntários
+                        adminRoutes.POST("/volunteers", handlers.CreateVolunteer)
+                        adminRoutes.PUT("/volunteers/:id", handlers.UpdateVolunteer)
+                        adminRoutes.DELETE("/volunteers/:id", handlers.DeleteVolunteer)
+                        
+                        // Gerenciamento de agendamentos
+                        adminRoutes.POST("/schedules", handlers.CreateSchedule)
+                        adminRoutes.PUT("/schedules/:id", handlers.UpdateSchedule)
+                        adminRoutes.DELETE("/schedules/:id", handlers.DeleteSchedule)
                 }
         }
 }

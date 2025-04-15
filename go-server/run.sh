@@ -2,7 +2,6 @@
 
 # Compilar o servidor Go
 echo "Compilando o servidor Go..."
-cd go-server
 go build -o server
 
 # Executar o servidor
