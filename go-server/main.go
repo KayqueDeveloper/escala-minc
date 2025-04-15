@@ -20,7 +20,10 @@ func main() {
         }
 
         // Inicializar conexão com o banco de dados
-        db.InitDB()
+        err := db.InitDB()
+        if err != nil {
+                log.Fatalf("Erro ao inicializar o banco de dados: %v", err)
+        }
         defer db.CloseDB()
 
         // Definir modo do Gin
@@ -87,6 +90,10 @@ func setupRoutes(router *gin.Engine) {
         {
                 // Perfil do usuário
                 protectedRoutes.GET("/profile", handlers.GetProfile)
+                
+                // Rotas do painel
+                protectedRoutes.GET("/dashboard/stats", handlers.GetDashboardStats)
+                protectedRoutes.GET("/conflicts", handlers.GetConflicts)
 
                 // Rotas de equipes
                 protectedRoutes.GET("/teams", handlers.GetTeams)
@@ -109,6 +116,18 @@ func setupRoutes(router *gin.Engine) {
                 protectedRoutes.GET("/schedules/:id", handlers.GetSchedule)
                 protectedRoutes.GET("/schedules/event/:eventId", handlers.GetSchedulesByEvent)
                 protectedRoutes.GET("/schedules/volunteer/:volunteerId", handlers.GetSchedulesByVolunteer)
+                
+                // Rotas de solicitações de troca
+                protectedRoutes.GET("/swap-requests", handlers.GetSwapRequests)
+                protectedRoutes.GET("/swap-requests/:id", handlers.GetSwapRequest)
+                protectedRoutes.POST("/swap-requests", handlers.CreateSwapRequest)
+                
+                // Rotas de notificações
+                protectedRoutes.GET("/notifications", handlers.GetNotifications)
+                protectedRoutes.GET("/notifications/unread/count", handlers.GetUnreadNotificationsCount)
+                protectedRoutes.PUT("/notifications/:id/read", handlers.MarkNotificationAsRead)
+                protectedRoutes.PUT("/notifications/read-all", handlers.MarkAllNotificationsAsRead)
+                protectedRoutes.DELETE("/notifications/:id", handlers.DeleteNotification)
                 
                 // Rotas protegidas para admins/líderes
                 adminRoutes := protectedRoutes.Group("")
@@ -133,6 +152,13 @@ func setupRoutes(router *gin.Engine) {
                         adminRoutes.POST("/schedules", handlers.CreateSchedule)
                         adminRoutes.PUT("/schedules/:id", handlers.UpdateSchedule)
                         adminRoutes.DELETE("/schedules/:id", handlers.DeleteSchedule)
+                        
+                        // Gerenciamento de solicitações de troca
+                        adminRoutes.PUT("/swap-requests/:id/approve", handlers.ApproveSwapRequest)
+                        adminRoutes.PUT("/swap-requests/:id/reject", handlers.RejectSwapRequest)
+                        
+                        // Gerenciamento de notificações (criar para outros usuários)
+                        adminRoutes.POST("/notifications", handlers.CreateNotification)
                 }
         }
 }
