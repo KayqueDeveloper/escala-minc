@@ -1,124 +1,186 @@
-import React from 'react';
-import { Link, useLocation } from 'wouter';
-import { cn } from '@/lib/utils';
+import { Link, useLocation } from "wouter";
+import { 
+  Home, 
+  Calendar, 
+  Users, 
+  UserPlus, 
+  Bell, 
+  Settings,
+  Menu,
+  X
+} from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useSidebar } from "@/context/sidebar-context";
 
-interface SidebarProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
+type NavItemProps = {
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+};
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+const NavItem = ({ href, icon: Icon, label, active, onClick }: NavItemProps) => {
+  return (
+    <Link href={href}>
+      <a 
+        onClick={onClick}
+        className={cn(
+          "group flex items-center px-2 py-2 text-sm font-medium rounded-md",
+          active 
+            ? "bg-primary-50 text-primary-600" 
+            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+        )}
+      >
+        <Icon 
+          className={cn(
+            "mr-3 h-6 w-6",
+            active 
+              ? "text-primary-600" 
+              : "text-gray-400 group-hover:text-gray-500"
+          )} 
+        />
+        {label}
+      </a>
+    </Link>
+  );
+};
+
+export function Sidebar() {
   const [location] = useLocation();
+  const { sidebarOpen, setSidebarOpen } = useSidebar();
 
-  // Mock data for illustration
-  const user = {
-    name: "Carlos Silva",
-    role: "Líder de Mídia",
-    avatar: "https://images.unsplash.com/photo-1633332755192-727a05c4013d?ixlib=rb-1.2.1&auto=format&fit=crop&w=120&h=120&q=80"
-  };
+  const closeSidebar = () => setSidebarOpen(false);
 
-  const teams = [
-    { id: 1, name: "Equipe de Transmissão", color: "#3f51b5" },
-    { id: 2, name: "Recepção", color: "#4caf50" }
-  ];
-
-  const menuItems = [
-    { path: "/", label: "Dashboard", icon: "dashboard" },
-    { path: "/schedules", label: "Escalas", icon: "event" },
-    { path: "/teams", label: "Times", icon: "groups" },
-    { path: "/volunteers", label: "Voluntários", icon: "person" },
-    { path: "/swap-requests", label: "Solicitações de Troca", icon: "swap_horiz", badge: 3 },
-    { path: "/notifications", label: "Notificações", icon: "notifications" },
-    { path: "/settings", label: "Configurações", icon: "settings" },
+  const navItems = [
+    { href: "/", icon: Home, label: "Dashboard" },
+    { href: "/schedules", icon: Calendar, label: "Escalas" },
+    { href: "/volunteers", icon: Users, label: "Voluntários" },
+    { href: "/teams", icon: UserPlus, label: "Times" },
+    { href: "/events", icon: Calendar, label: "Eventos" },
+    { href: "/notifications", icon: Bell, label: "Notificações" },
+    { href: "/settings", icon: Settings, label: "Configurações" },
   ];
 
   return (
     <>
-      {/* Mobile overlay */}
-      {isOpen && (
+      {/* Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
         <div 
-          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
-          onClick={onClose}
+          className="fixed inset-0 z-40 md:hidden bg-gray-600 bg-opacity-75"
+          onClick={closeSidebar}
+          aria-hidden="true"
         />
       )}
-      
-      {/* Sidebar */}
-      <aside 
+
+      {/* Mobile Sidebar */}
+      <div 
         className={cn(
-          "fixed md:static top-0 left-0 h-full w-64 bg-primary-dark text-white overflow-y-auto z-50 transition-transform duration-300 transform",
-          isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+          "fixed inset-y-0 left-0 flex flex-col z-50 w-64 max-w-xs bg-white md:hidden transform transition-transform duration-300 ease-in-out",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Logo */}
-        <div className="p-4 flex items-center border-b border-primary">
-          <svg className="w-9 h-9 rounded-full mr-3 text-white" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M16 2V6M8 2V6M3 10H21M5 4H19C20.1046 4 21 4.89543 21 6V20C21 21.1046 20.1046 22 19 22H5C3.89543 22 3 21.1046 3 20V6C3 4.89543 3.89543 4 5 4Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <h1 className="text-xl font-medium">Scale</h1>
-        </div>
-        
-        {/* User Profile Summary */}
-        <div className="p-4 border-b border-primary flex items-center">
-          <img src={user.avatar} alt="Profile" className="w-10 h-10 rounded-full mr-3" />
-          <div>
-            <p className="font-medium">{user.name}</p>
-            <p className="text-xs opacity-75">{user.role}</p>
-          </div>
-        </div>
-        
-        {/* Navigation Menu */}
-        <nav className="mt-3">
-          <ul>
-            {menuItems.map((item) => (
-              <li 
-                key={item.path}
-                className={cn(
-                  "px-4 py-2 hover:bg-primary transition-colors",
-                  location === item.path && "bg-primary"
-                )}
-              >
-                <Link href={item.path} className="flex items-center text-white">
-                  <span className="material-icons mr-3 text-sm">{item.icon}</span>
-                  <span>{item.label}</span>
-                  {item.badge && (
-                    <span className="ml-auto bg-secondary text-white text-xs px-2 py-1 rounded-full">
-                      {item.badge}
-                    </span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        
-        {/* Teams Quick Access */}
-        <div className="mt-8 px-4">
-          <h3 className="text-sm font-medium mb-2 text-neutral-200">MEUS TIMES</h3>
-          <ul>
-            {teams.map((team) => (
-              <li key={team.id} className="mb-1">
-                <a href="#" className="flex items-center text-sm py-1 text-white hover:text-secondary-light">
-                  <span 
-                    className="w-2 h-2 rounded-full mr-2" 
-                    style={{ backgroundColor: team.color }}
-                  ></span>
-                  <span>{team.name}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-        
-        {/* Logout */}
-        <div className="mt-auto p-4 border-t border-primary">
-          <button className="flex items-center text-white hover:text-secondary-light">
-            <span className="material-icons mr-2">logout</span>
-            <span>Sair</span>
+        <div className="absolute top-0 right-0 -mr-12 pt-2">
+          <button 
+            className="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
+            onClick={closeSidebar}
+          >
+            <span className="sr-only">Fechar menu</span>
+            <X className="h-6 w-6 text-white" />
           </button>
         </div>
-      </aside>
+
+        <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
+          <div className="flex-shrink-0 flex items-center px-4">
+            <span className="text-xl font-bold text-primary-600 font-heading">Escala Igreja</span>
+          </div>
+          <nav className="mt-5 px-2 space-y-1">
+            {navItems.map((item) => (
+              <NavItem 
+                key={item.href}
+                href={item.href}
+                icon={item.icon}
+                label={item.label}
+                active={location === item.href}
+                onClick={closeSidebar}
+              />
+            ))}
+          </nav>
+        </div>
+
+        <div className="flex-shrink-0 flex border-t border-gray-200 p-4">
+          <a href="#" className="flex-shrink-0 group block">
+            <div className="flex items-center">
+              <div>
+                <Avatar>
+                  <AvatarImage src="" alt="User Profile" />
+                  <AvatarFallback>LS</AvatarFallback>
+                </Avatar>
+              </div>
+              <div className="ml-3">
+                <p className="text-base font-medium text-gray-700 group-hover:text-gray-900">Líder Silva</p>
+                <p className="text-sm font-medium text-gray-500 group-hover:text-gray-700">Ver perfil</p>
+              </div>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <div className="hidden md:flex md:flex-shrink-0">
+        <div className="flex flex-col w-64">
+          <div className="flex flex-col h-0 flex-1 border-r border-gray-200 bg-white">
+            <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
+              <div className="flex items-center flex-shrink-0 px-4">
+                <span className="text-xl font-bold text-primary-600 font-heading">Escala Igreja</span>
+              </div>
+              <nav className="mt-5 flex-1 px-2 bg-white space-y-1">
+                {navItems.map((item) => (
+                  <NavItem 
+                    key={item.href}
+                    href={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    active={location === item.href}
+                  />
+                ))}
+              </nav>
+            </div>
+            <div className="flex-shrink-0 flex border-t border-gray-200 p-4">
+              <a href="#" className="flex-shrink-0 w-full group block">
+                <div className="flex items-center">
+                  <div>
+                    <Avatar>
+                      <AvatarImage src="" alt="User Profile" />
+                      <AvatarFallback>LS</AvatarFallback>
+                    </Avatar>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-gray-700 group-hover:text-gray-900">Líder Silva</p>
+                    <p className="text-xs font-medium text-gray-500 group-hover:text-gray-700">Ver perfil</p>
+                  </div>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Header */}
+      <div className="md:hidden pl-1 pt-1 sm:pl-3 sm:pt-3 bg-white shadow">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="-ml-0.5 -mt-0.5 h-12 w-12 inline-flex items-center justify-center"
+          onClick={() => setSidebarOpen(true)}
+        >
+          <span className="sr-only">Abrir menu</span>
+          <Menu className="h-6 w-6 text-gray-500" />
+        </Button>
+        <span className="ml-2 text-lg font-bold text-primary-600">Escala Igreja</span>
+      </div>
     </>
   );
-};
-
-export default Sidebar;
+}

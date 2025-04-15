@@ -2,888 +2,470 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { 
-  insertUserSchema, insertTeamSchema, insertRoleSchema, insertTeamMemberSchema,
-  insertServiceSchema, insertEventSchema, insertScheduleSchema, insertScheduleDetailSchema,
-  insertAvailabilityRuleSchema, insertSwapRequestSchema
+  insertUserSchema, 
+  insertTeamSchema, 
+  insertRoleSchema, 
+  insertVolunteerSchema, 
+  insertEventSchema, 
+  insertScheduleSchema, 
+  insertSwapRequestSchema, 
+  insertNotificationSchema, 
+  insertAvailabilityRuleSchema 
 } from "@shared/schema";
-import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  const httpServer = createServer(app);
-
-  // Auth Routes
-  app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body;
-    
-    if (!username || !password) {
-      return res.status(400).json({ message: 'Username and password are required' });
-    }
-    
+  // User related routes
+  app.get("/api/users", async (req, res) => {
     try {
-      const user = await storage.getUserByUsername(username);
-      
-      if (!user || user.password !== password) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-      
-      // Don't send password back to client
-      const { password: _, ...userWithoutPassword } = user;
-      
-      return res.status(200).json(userWithoutPassword);
+      const users = await storage.getAllUsers();
+      res.json(users);
     } catch (error) {
-      console.error('Login error:', error);
-      return res.status(500).json({ message: 'Internal server error' });
+      res.status(500).json({ message: "Error fetching users" });
     }
   });
 
-  // User Routes
-  app.get('/api/users', async (_req, res) => {
+  app.get("/api/users/leaders", async (req, res) => {
     try {
-      const users = await storage.getUsers();
-      // Filter out passwords
-      const usersWithoutPasswords = users.map(({ password, ...user }) => user);
-      res.json(usersWithoutPasswords);
+      const leaders = await storage.getUsersByRole("leader");
+      res.json(leaders);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch users' });
+      res.status(500).json({ message: "Error fetching leaders" });
     }
   });
 
-  app.get('/api/users/:id', async (req, res) => {
-    const userId = parseInt(req.params.id);
-    if (isNaN(userId)) {
-      return res.status(400).json({ message: 'Invalid user ID' });
-    }
-
+  app.get("/api/users/:id", async (req, res) => {
     try {
-      const user = await storage.getUser(userId);
+      const user = await storage.getUser(parseInt(req.params.id));
       if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ message: "User not found" });
       }
-      
-      // Don't send password
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
+      res.json(user);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch user' });
+      res.status(500).json({ message: "Error fetching user" });
     }
   });
 
-  app.post('/api/users', async (req, res) => {
+  app.post("/api/users", async (req, res) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
-      const newUser = await storage.createUser(userData);
-      
-      // Don't send password back
-      const { password, ...userWithoutPassword } = newUser;
-      res.status(201).json(userWithoutPassword);
+      const parsedData = insertUserSchema.parse(req.body);
+      const user = await storage.createUser(parsedData);
+      res.status(201).json(user);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid user data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create user' });
+      res.status(400).json({ message: "Invalid user data" });
     }
   });
 
-  app.put('/api/users/:id', async (req, res) => {
-    const userId = parseInt(req.params.id);
-    if (isNaN(userId)) {
-      return res.status(400).json({ message: 'Invalid user ID' });
-    }
-
+  // Team related routes
+  app.get("/api/teams", async (req, res) => {
     try {
-      const userData = req.body;
-      const updatedUser = await storage.updateUser(userId, userData);
-      
-      if (!updatedUser) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      
-      // Don't send password back
-      const { password, ...userWithoutPassword } = updatedUser;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to update user' });
-    }
-  });
-
-  app.delete('/api/users/:id', async (req, res) => {
-    const userId = parseInt(req.params.id);
-    if (isNaN(userId)) {
-      return res.status(400).json({ message: 'Invalid user ID' });
-    }
-
-    try {
-      const success = await storage.deleteUser(userId);
-      if (!success) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete user' });
-    }
-  });
-
-  // Team Routes
-  app.get('/api/teams', async (_req, res) => {
-    try {
-      const teams = await storage.getTeams();
+      const teams = await storage.getAllTeams();
       res.json(teams);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch teams' });
+      res.status(500).json({ message: "Error fetching teams" });
     }
   });
 
-  app.get('/api/teams/:id', async (req, res) => {
-    const teamId = parseInt(req.params.id);
-    if (isNaN(teamId)) {
-      return res.status(400).json({ message: 'Invalid team ID' });
-    }
-
+  app.get("/api/teams/with-roles", async (req, res) => {
     try {
-      const team = await storage.getTeam(teamId);
+      const teams = await storage.getAllTeamsWithRoles();
+      res.json(teams);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching teams with roles" });
+    }
+  });
+
+  app.get("/api/teams/:id", async (req, res) => {
+    try {
+      const team = await storage.getTeam(parseInt(req.params.id));
       if (!team) {
-        return res.status(404).json({ message: 'Team not found' });
+        return res.status(404).json({ message: "Team not found" });
       }
-      
       res.json(team);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch team' });
+      res.status(500).json({ message: "Error fetching team" });
     }
   });
 
-  app.post('/api/teams', async (req, res) => {
+  app.post("/api/teams", async (req, res) => {
     try {
-      const teamData = insertTeamSchema.parse(req.body);
-      const newTeam = await storage.createTeam(teamData);
-      res.status(201).json(newTeam);
+      const parsedData = insertTeamSchema.parse(req.body);
+      const team = await storage.createTeam(parsedData);
+      res.status(201).json(team);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid team data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create team' });
+      res.status(400).json({ message: "Invalid team data" });
     }
   });
 
-  app.put('/api/teams/:id', async (req, res) => {
-    const teamId = parseInt(req.params.id);
-    if (isNaN(teamId)) {
-      return res.status(400).json({ message: 'Invalid team ID' });
-    }
-
+  // Role related routes
+  app.get("/api/roles", async (req, res) => {
     try {
-      const teamData = req.body;
-      const updatedTeam = await storage.updateTeam(teamId, teamData);
-      
-      if (!updatedTeam) {
-        return res.status(404).json({ message: 'Team not found' });
-      }
-      
-      res.json(updatedTeam);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to update team' });
-    }
-  });
-
-  app.delete('/api/teams/:id', async (req, res) => {
-    const teamId = parseInt(req.params.id);
-    if (isNaN(teamId)) {
-      return res.status(400).json({ message: 'Invalid team ID' });
-    }
-
-    try {
-      const success = await storage.deleteTeam(teamId);
-      if (!success) {
-        return res.status(404).json({ message: 'Team not found' });
-      }
-      
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete team' });
-    }
-  });
-
-  // Role Routes
-  app.get('/api/roles', async (_req, res) => {
-    try {
-      const roles = await storage.getRoles();
+      const roles = await storage.getAllRoles();
       res.json(roles);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch roles' });
+      res.status(500).json({ message: "Error fetching roles" });
     }
   });
 
-  app.get('/api/teams/:teamId/roles', async (req, res) => {
-    const teamId = parseInt(req.params.teamId);
-    if (isNaN(teamId)) {
-      return res.status(400).json({ message: 'Invalid team ID' });
-    }
-
+  app.get("/api/roles/:id", async (req, res) => {
     try {
-      const roles = await storage.getRolesByTeam(teamId);
-      res.json(roles);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch roles for team' });
-    }
-  });
-
-  app.post('/api/roles', async (req, res) => {
-    try {
-      const roleData = insertRoleSchema.parse(req.body);
-      const newRole = await storage.createRole(roleData);
-      res.status(201).json(newRole);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid role data', errors: error.format() });
+      const role = await storage.getRole(parseInt(req.params.id));
+      if (!role) {
+        return res.status(404).json({ message: "Role not found" });
       }
-      res.status(500).json({ message: 'Failed to create role' });
+      res.json(role);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching role" });
     }
   });
 
-  app.put('/api/roles/:id', async (req, res) => {
-    const roleId = parseInt(req.params.id);
-    if (isNaN(roleId)) {
-      return res.status(400).json({ message: 'Invalid role ID' });
-    }
-
+  app.post("/api/roles", async (req, res) => {
     try {
-      const roleData = req.body;
-      const updatedRole = await storage.updateRole(roleId, roleData);
-      
-      if (!updatedRole) {
-        return res.status(404).json({ message: 'Role not found' });
+      const parsedData = insertRoleSchema.parse(req.body);
+      const role = await storage.createRole(parsedData);
+      res.status(201).json(role);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid role data" });
+    }
+  });
+
+  // Volunteer related routes
+  app.get("/api/volunteers", async (req, res) => {
+    try {
+      const volunteers = await storage.getAllVolunteersWithTeams();
+      res.json(volunteers);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching volunteers" });
+    }
+  });
+
+  app.get("/api/volunteers/:id", async (req, res) => {
+    try {
+      const volunteer = await storage.getVolunteer(parseInt(req.params.id));
+      if (!volunteer) {
+        return res.status(404).json({ message: "Volunteer not found" });
       }
+      res.json(volunteer);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching volunteer" });
+    }
+  });
+
+  app.post("/api/volunteers", async (req, res) => {
+    try {
+      const parsedData = insertVolunteerSchema.parse(req.body);
+      const volunteer = await storage.createVolunteer(parsedData);
+      res.status(201).json(volunteer);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid volunteer data" });
+    }
+  });
+
+  // Event related routes
+  app.get("/api/events", async (req, res) => {
+    try {
+      const filterType = req.query.filter as string;
+      const events = await storage.getAllEvents();
       
-      res.json(updatedRole);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to update role' });
-    }
-  });
-
-  app.delete('/api/roles/:id', async (req, res) => {
-    const roleId = parseInt(req.params.id);
-    if (isNaN(roleId)) {
-      return res.status(400).json({ message: 'Invalid role ID' });
-    }
-
-    try {
-      const success = await storage.deleteRole(roleId);
-      if (!success) {
-        return res.status(404).json({ message: 'Role not found' });
-      }
+      let filteredEvents = events;
       
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete role' });
-    }
-  });
-
-  // Team Members Routes
-  app.get('/api/team-members', async (_req, res) => {
-    try {
-      const teamMembers = await storage.getTeamMembers();
-      res.json(teamMembers);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch team members' });
-    }
-  });
-
-  app.get('/api/teams/:teamId/members', async (req, res) => {
-    const teamId = parseInt(req.params.teamId);
-    if (isNaN(teamId)) {
-      return res.status(400).json({ message: 'Invalid team ID' });
-    }
-
-    try {
-      const members = await storage.getTeamMembersByTeam(teamId);
-      res.json(members);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch team members' });
-    }
-  });
-
-  app.get('/api/users/:userId/teams', async (req, res) => {
-    const userId = parseInt(req.params.userId);
-    if (isNaN(userId)) {
-      return res.status(400).json({ message: 'Invalid user ID' });
-    }
-
-    try {
-      const teamMembers = await storage.getTeamMembersByUser(userId);
-      
-      // Get the team details for each membership
-      const teams = await Promise.all(
-        teamMembers.map(async (member) => {
-          const team = await storage.getTeam(member.teamId);
-          const role = await storage.getRole(member.roleId);
-          return {
-            ...member,
-            teamDetails: team,
-            roleDetails: role
-          };
-        })
-      );
-      
-      res.json(teams);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch user teams' });
-    }
-  });
-
-  app.post('/api/team-members', async (req, res) => {
-    try {
-      const memberData = insertTeamMemberSchema.parse(req.body);
-      const newMember = await storage.createTeamMember(memberData);
-      res.status(201).json(newMember);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid team member data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to add team member' });
-    }
-  });
-
-  app.put('/api/team-members/:id', async (req, res) => {
-    const memberId = parseInt(req.params.id);
-    if (isNaN(memberId)) {
-      return res.status(400).json({ message: 'Invalid team member ID' });
-    }
-
-    try {
-      const memberData = req.body;
-      const updatedMember = await storage.updateTeamMember(memberId, memberData);
-      
-      if (!updatedMember) {
-        return res.status(404).json({ message: 'Team member not found' });
+      // Apply filters
+      if (filterType === 'upcoming') {
+        const now = new Date();
+        filteredEvents = events.filter(e => new Date(e.eventDate) > now);
+      } else if (filterType === 'past') {
+        const now = new Date();
+        filteredEvents = events.filter(e => new Date(e.eventDate) < now);
+      } else if (filterType && filterType !== 'all') {
+        // Filter by event type if specified
+        filteredEvents = events.filter(e => e.eventType === filterType);
       }
       
-      res.json(updatedMember);
+      res.json(filteredEvents);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to update team member' });
+      res.status(500).json({ message: "Error fetching events" });
     }
   });
 
-  app.delete('/api/team-members/:id', async (req, res) => {
-    const memberId = parseInt(req.params.id);
-    if (isNaN(memberId)) {
-      return res.status(400).json({ message: 'Invalid team member ID' });
-    }
-
+  app.get("/api/events/upcoming", async (req, res) => {
     try {
-      const success = await storage.deleteTeamMember(memberId);
-      if (!success) {
-        return res.status(404).json({ message: 'Team member not found' });
-      }
-      
-      res.status(204).send();
+      const upcomingEvents = await storage.getUpcomingEvents();
+      res.json(upcomingEvents);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to remove team member' });
+      res.status(500).json({ message: "Error fetching upcoming events" });
     }
   });
 
-  // Services Routes
-  app.get('/api/services', async (_req, res) => {
+  app.get("/api/events/:id", async (req, res) => {
     try {
-      const services = await storage.getServices();
-      res.json(services);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch services' });
-    }
-  });
-
-  app.post('/api/services', async (req, res) => {
-    try {
-      const serviceData = insertServiceSchema.parse(req.body);
-      const newService = await storage.createService(serviceData);
-      res.status(201).json(newService);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid service data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create service' });
-    }
-  });
-
-  // Events Routes
-  app.get('/api/events', async (req, res) => {
-    try {
-      const { start, end } = req.query;
-      
-      if (start && end) {
-        // If date range is provided, return events within range
-        const startDate = new Date(start as string);
-        const endDate = new Date(end as string);
-        
-        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-          return res.status(400).json({ message: 'Invalid date range' });
-        }
-        
-        const events = await storage.getEventsByDateRange(startDate, endDate);
-        return res.json(events);
-      }
-      
-      // Otherwise return all events
-      const events = await storage.getEvents();
-      res.json(events);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch events' });
-    }
-  });
-
-  app.get('/api/events/:id', async (req, res) => {
-    const eventId = parseInt(req.params.id);
-    if (isNaN(eventId)) {
-      return res.status(400).json({ message: 'Invalid event ID' });
-    }
-
-    try {
-      const event = await storage.getEvent(eventId);
+      const event = await storage.getEvent(parseInt(req.params.id));
       if (!event) {
-        return res.status(404).json({ message: 'Event not found' });
+        return res.status(404).json({ message: "Event not found" });
       }
-      
       res.json(event);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch event' });
+      res.status(500).json({ message: "Error fetching event" });
     }
   });
 
-  app.post('/api/events', async (req, res) => {
+  app.post("/api/events", async (req, res) => {
     try {
-      const eventData = insertEventSchema.parse(req.body);
-      const newEvent = await storage.createEvent(eventData);
-      res.status(201).json(newEvent);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid event data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create event' });
-    }
-  });
-
-  app.put('/api/events/:id', async (req, res) => {
-    const eventId = parseInt(req.params.id);
-    if (isNaN(eventId)) {
-      return res.status(400).json({ message: 'Invalid event ID' });
-    }
-
-    try {
-      const eventData = req.body;
-      const updatedEvent = await storage.updateEvent(eventId, eventData);
+      const parsedData = insertEventSchema.parse(req.body);
+      const event = await storage.createEvent(parsedData);
       
-      if (!updatedEvent) {
-        return res.status(404).json({ message: 'Event not found' });
-      }
-      
-      res.json(updatedEvent);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to update event' });
-    }
-  });
-
-  app.delete('/api/events/:id', async (req, res) => {
-    const eventId = parseInt(req.params.id);
-    if (isNaN(eventId)) {
-      return res.status(400).json({ message: 'Invalid event ID' });
-    }
-
-    try {
-      const success = await storage.deleteEvent(eventId);
-      if (!success) {
-        return res.status(404).json({ message: 'Event not found' });
-      }
-      
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete event' });
-    }
-  });
-
-  // Schedule Routes
-  app.get('/api/schedules', async (req, res) => {
-    try {
-      const { start, end, teamId } = req.query;
-      
-      if (start && end) {
-        // If date range is provided, return schedules within range
-        const startDate = new Date(start as string);
-        const endDate = new Date(end as string);
-        
-        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-          return res.status(400).json({ message: 'Invalid date range' });
+      // Create event schedules for each team
+      if (req.body.teamIds && Array.isArray(req.body.teamIds)) {
+        for (const teamId of req.body.teamIds) {
+          await storage.createInitialSchedulesForEvent(event.id, teamId);
         }
-        
-        if (teamId) {
-          // If team ID is also provided, filter by team
-          const teamIdNum = parseInt(teamId as string);
-          
-          if (isNaN(teamIdNum)) {
-            return res.status(400).json({ message: 'Invalid team ID' });
-          }
-          
-          const teamSchedules = await storage.getSchedulesByTeam(teamIdNum);
-          const filteredSchedules = teamSchedules.filter(schedule => {
-            const scheduleDate = new Date(schedule.date);
-            return scheduleDate >= startDate && scheduleDate <= endDate;
-          });
-          
-          return res.json(filteredSchedules);
-        }
-        
-        const schedules = await storage.getSchedulesByDateRange(startDate, endDate);
-        return res.json(schedules);
       }
       
-      if (teamId) {
-        // If only team ID is provided, get all schedules for that team
-        const teamIdNum = parseInt(teamId as string);
-        
-        if (isNaN(teamIdNum)) {
-          return res.status(400).json({ message: 'Invalid team ID' });
-        }
-        
-        const teamSchedules = await storage.getSchedulesByTeam(teamIdNum);
-        return res.json(teamSchedules);
-      }
-      
-      // Otherwise return all schedules
-      const schedules = await storage.getSchedules();
-      res.json(schedules);
+      res.status(201).json(event);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch schedules' });
+      res.status(400).json({ message: "Invalid event data" });
     }
   });
 
-  app.get('/api/schedules/:id', async (req, res) => {
-    const scheduleId = parseInt(req.params.id);
-    if (isNaN(scheduleId)) {
-      return res.status(400).json({ message: 'Invalid schedule ID' });
-    }
-
+  // Schedule related routes
+  app.get("/api/schedules", async (req, res) => {
     try {
-      const schedule = await storage.getSchedule(scheduleId);
+      const filterType = req.query.filter as string;
+      const eventId = req.query.eventId ? parseInt(req.query.eventId as string) : undefined;
+      
+      let schedules;
+      
+      if (eventId) {
+        schedules = await storage.getSchedulesByEvent(eventId);
+      } else {
+        schedules = await storage.getAllSchedules();
+      }
+      
+      // Apply filters
+      let filteredSchedules = schedules;
+      
+      if (filterType === 'upcoming') {
+        const now = new Date();
+        filteredSchedules = schedules.filter(s => new Date(s.eventDate) > now);
+      } else if (filterType === 'incomplete') {
+        filteredSchedules = schedules.filter(s => s.status !== 'complete');
+      } else if (filterType === 'conflicts') {
+        filteredSchedules = schedules.filter(s => s.hasConflicts);
+      } else if (filterType === 'past') {
+        const now = new Date();
+        filteredSchedules = schedules.filter(s => new Date(s.eventDate) < now);
+      }
+      
+      res.json(filteredSchedules);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching schedules" });
+    }
+  });
+
+  app.get("/api/schedules/:id", async (req, res) => {
+    try {
+      const schedule = await storage.getSchedule(parseInt(req.params.id));
       if (!schedule) {
-        return res.status(404).json({ message: 'Schedule not found' });
+        return res.status(404).json({ message: "Schedule not found" });
       }
-      
       res.json(schedule);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch schedule' });
+      res.status(500).json({ message: "Error fetching schedule" });
     }
   });
 
-  app.post('/api/schedules', async (req, res) => {
+  app.post("/api/schedules", async (req, res) => {
     try {
-      const scheduleData = insertScheduleSchema.parse(req.body);
-      const newSchedule = await storage.createSchedule(scheduleData);
-      res.status(201).json(newSchedule);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid schedule data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create schedule' });
-    }
-  });
-
-  app.put('/api/schedules/:id', async (req, res) => {
-    const scheduleId = parseInt(req.params.id);
-    if (isNaN(scheduleId)) {
-      return res.status(400).json({ message: 'Invalid schedule ID' });
-    }
-
-    try {
-      const scheduleData = req.body;
-      const updatedSchedule = await storage.updateSchedule(scheduleId, scheduleData);
-      
-      if (!updatedSchedule) {
-        return res.status(404).json({ message: 'Schedule not found' });
-      }
-      
-      res.json(updatedSchedule);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to update schedule' });
-    }
-  });
-
-  app.delete('/api/schedules/:id', async (req, res) => {
-    const scheduleId = parseInt(req.params.id);
-    if (isNaN(scheduleId)) {
-      return res.status(400).json({ message: 'Invalid schedule ID' });
-    }
-
-    try {
-      const success = await storage.deleteSchedule(scheduleId);
-      if (!success) {
-        return res.status(404).json({ message: 'Schedule not found' });
-      }
-      
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete schedule' });
-    }
-  });
-
-  // Schedule Details Routes
-  app.get('/api/schedule-details', async (req, res) => {
-    try {
-      const { scheduleId, volunteerId } = req.query;
-      
-      if (scheduleId) {
-        const scheduleIdNum = parseInt(scheduleId as string);
-        
-        if (isNaN(scheduleIdNum)) {
-          return res.status(400).json({ message: 'Invalid schedule ID' });
-        }
-        
-        const details = await storage.getScheduleDetailsBySchedule(scheduleIdNum);
-        return res.json(details);
-      }
-      
-      if (volunteerId) {
-        const volunteerIdNum = parseInt(volunteerId as string);
-        
-        if (isNaN(volunteerIdNum)) {
-          return res.status(400).json({ message: 'Invalid volunteer ID' });
-        }
-        
-        const details = await storage.getScheduleDetailsByVolunteer(volunteerIdNum);
-        return res.json(details);
-      }
-      
-      const scheduleDetails = await storage.getScheduleDetails();
-      res.json(scheduleDetails);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch schedule details' });
-    }
-  });
-
-  app.post('/api/schedule-details', async (req, res) => {
-    try {
-      const detailData = insertScheduleDetailSchema.parse(req.body);
+      const parsedData = insertScheduleSchema.parse(req.body);
       
       // Check for scheduling conflicts
-      const schedule = await storage.getSchedule(detailData.scheduleId);
-      
-      if (!schedule) {
-        return res.status(404).json({ message: 'Schedule not found' });
-      }
-      
-      const conflict = await storage.checkScheduleConflict(schedule.date, detailData.volunteerId);
-      
-      if (conflict) {
-        // If conflict exists, return error with conflict details
-        const conflictSchedule = await storage.getSchedule(conflict.scheduleId);
-        const conflictRole = await storage.getRole(conflict.roleId);
-        const conflictTeam = await storage.getTeam(conflictSchedule.teamId);
-        
-        return res.status(409).json({
-          message: 'Volunteer already scheduled for this date',
-          conflict: {
-            scheduleDetail: conflict,
-            schedule: conflictSchedule,
-            role: conflictRole,
-            team: conflictTeam
-          }
-        });
-      }
-      
-      // Check volunteer availability
-      const isAvailable = await storage.checkAvailability(
-        detailData.volunteerId, 
-        schedule.date, 
-        schedule.serviceId
+      const hasConflict = await storage.checkSchedulingConflict(
+        parsedData.eventId,
+        parsedData.volunteerId
       );
       
-      if (!isAvailable) {
-        return res.status(400).json({
-          message: 'Volunteer not available for this date/service'
+      if (hasConflict) {
+        // Create schedule but mark it as conflicted
+        const schedule = await storage.createSchedule(parsedData);
+        
+        // Create conflict notification
+        await storage.createConflictNotification(parsedData.volunteerId, parsedData.eventId);
+        
+        return res.status(201).json({
+          ...schedule,
+          warning: "Volunteer has a scheduling conflict"
         });
       }
       
-      const newDetail = await storage.createScheduleDetail(detailData);
-      res.status(201).json(newDetail);
+      const schedule = await storage.createSchedule(parsedData);
+      res.status(201).json(schedule);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid schedule detail data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create schedule detail' });
+      res.status(400).json({ message: "Invalid schedule data" });
     }
   });
 
-  app.put('/api/schedule-details/:id', async (req, res) => {
-    const detailId = parseInt(req.params.id);
-    if (isNaN(detailId)) {
-      return res.status(400).json({ message: 'Invalid schedule detail ID' });
-    }
-
+  // Availability rules related routes
+  app.get("/api/availability-rules", async (req, res) => {
     try {
-      const detailData = req.body;
-      const updatedDetail = await storage.updateScheduleDetail(detailId, detailData);
+      const volunteerId = req.query.volunteerId ? parseInt(req.query.volunteerId as string) : undefined;
       
-      if (!updatedDetail) {
-        return res.status(404).json({ message: 'Schedule detail not found' });
-      }
-      
-      res.json(updatedDetail);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to update schedule detail' });
-    }
-  });
-
-  app.delete('/api/schedule-details/:id', async (req, res) => {
-    const detailId = parseInt(req.params.id);
-    if (isNaN(detailId)) {
-      return res.status(400).json({ message: 'Invalid schedule detail ID' });
-    }
-
-    try {
-      const success = await storage.deleteScheduleDetail(detailId);
-      if (!success) {
-        return res.status(404).json({ message: 'Schedule detail not found' });
-      }
-      
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete schedule detail' });
-    }
-  });
-
-  // Availability Rules Routes
-  app.get('/api/availability-rules', async (req, res) => {
-    try {
-      const { userId } = req.query;
-      
-      if (userId) {
-        const userIdNum = parseInt(userId as string);
-        
-        if (isNaN(userIdNum)) {
-          return res.status(400).json({ message: 'Invalid user ID' });
-        }
-        
-        const rules = await storage.getAvailabilityRulesByUser(userIdNum);
+      if (volunteerId) {
+        const rules = await storage.getAvailabilityRulesByVolunteer(volunteerId);
         return res.json(rules);
       }
       
-      const rules = await storage.getAvailabilityRules();
+      const rules = await storage.getAllAvailabilityRules();
       res.json(rules);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch availability rules' });
+      res.status(500).json({ message: "Error fetching availability rules" });
     }
   });
 
-  app.post('/api/availability-rules', async (req, res) => {
+  app.post("/api/availability-rules", async (req, res) => {
     try {
-      const ruleData = insertAvailabilityRuleSchema.parse(req.body);
-      const newRule = await storage.createAvailabilityRule(ruleData);
-      res.status(201).json(newRule);
+      const parsedData = insertAvailabilityRuleSchema.parse(req.body);
+      const rule = await storage.createAvailabilityRule(parsedData);
+      res.status(201).json(rule);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid rule data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create availability rule' });
+      res.status(400).json({ message: "Invalid availability rule data" });
     }
   });
 
-  app.delete('/api/availability-rules/:id', async (req, res) => {
-    const ruleId = parseInt(req.params.id);
-    if (isNaN(ruleId)) {
-      return res.status(400).json({ message: 'Invalid rule ID' });
-    }
-
+  // Swap request related routes
+  app.get("/api/swap-requests", async (req, res) => {
     try {
-      const success = await storage.deleteAvailabilityRule(ruleId);
-      if (!success) {
-        return res.status(404).json({ message: 'Rule not found' });
-      }
-      
-      res.status(204).send();
+      const swapRequests = await storage.getAllSwapRequests();
+      res.json(swapRequests);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to delete availability rule' });
+      res.status(500).json({ message: "Error fetching swap requests" });
     }
   });
 
-  // Swap Requests Routes
-  app.get('/api/swap-requests', async (req, res) => {
+  app.post("/api/swap-requests", async (req, res) => {
     try {
-      const { requesterId, replacementId, status } = req.query;
+      const parsedData = insertSwapRequestSchema.parse(req.body);
+      const swapRequest = await storage.createSwapRequest(parsedData);
       
-      if (requesterId) {
-        const requesterIdNum = parseInt(requesterId as string);
-        
-        if (isNaN(requesterIdNum)) {
-          return res.status(400).json({ message: 'Invalid requester ID' });
-        }
-        
-        const requests = await storage.getSwapRequestsByRequester(requesterIdNum);
-        return res.json(requests);
+      // Create notification for the target volunteer or team leader
+      if (parsedData.targetVolunteerId) {
+        await storage.createSwapRequestNotification(
+          parsedData.targetVolunteerId,
+          swapRequest.id
+        );
+      } else {
+        // If no target volunteer, notify the team leader
+        await storage.createSwapRequestNotificationForLeader(
+          parsedData.requestorScheduleId,
+          swapRequest.id
+        );
       }
       
-      if (replacementId) {
-        const replacementIdNum = parseInt(replacementId as string);
-        
-        if (isNaN(replacementIdNum)) {
-          return res.status(400).json({ message: 'Invalid replacement ID' });
-        }
-        
-        const requests = await storage.getSwapRequestsByReplacement(replacementIdNum);
-        return res.json(requests);
-      }
-      
-      if (status === 'pending') {
-        const pendingRequests = await storage.getPendingSwapRequests();
-        return res.json(pendingRequests);
-      }
-      
-      const requests = await storage.getSwapRequests();
-      res.json(requests);
+      res.status(201).json(swapRequest);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch swap requests' });
+      res.status(400).json({ message: "Invalid swap request data" });
     }
   });
 
-  app.post('/api/swap-requests', async (req, res) => {
+  app.post("/api/swap-requests/:id/approve", async (req, res) => {
     try {
-      const requestData = insertSwapRequestSchema.parse(req.body);
-      const newRequest = await storage.createSwapRequest(requestData);
-      res.status(201).json(newRequest);
+      const swapRequestId = parseInt(req.params.id);
+      const updatedSwapRequest = await storage.approveSwapRequest(swapRequestId);
+      res.json(updatedSwapRequest);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: 'Invalid request data', errors: error.format() });
-      }
-      res.status(500).json({ message: 'Failed to create swap request' });
+      res.status(500).json({ message: "Error approving swap request" });
     }
   });
 
-  app.put('/api/swap-requests/:id', async (req, res) => {
-    const requestId = parseInt(req.params.id);
-    if (isNaN(requestId)) {
-      return res.status(400).json({ message: 'Invalid request ID' });
-    }
-
+  app.post("/api/swap-requests/:id/reject", async (req, res) => {
     try {
-      const requestData = req.body;
-      const updatedRequest = await storage.updateSwapRequest(requestId, requestData);
-      
-      if (!updatedRequest) {
-        return res.status(404).json({ message: 'Swap request not found' });
-      }
-      
-      // If the request is approved, update the schedule detail
-      if (updatedRequest.status === 'approved') {
-        const scheduleDetail = await storage.getScheduleDetail(updatedRequest.scheduleDetailId);
-        
-        if (scheduleDetail) {
-          await storage.updateScheduleDetail(scheduleDetail.id, {
-            volunteerId: updatedRequest.replacementId
-          });
-        }
-      }
-      
-      res.json(updatedRequest);
+      const swapRequestId = parseInt(req.params.id);
+      const updatedSwapRequest = await storage.rejectSwapRequest(swapRequestId);
+      res.json(updatedSwapRequest);
     } catch (error) {
-      res.status(500).json({ message: 'Failed to update swap request' });
+      res.status(500).json({ message: "Error rejecting swap request" });
     }
   });
+
+  // Authentication routes
+  app.post("/api/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+      
+      const user = await storage.getUserByUsername(username);
+      
+      if (!user || user.password !== password) {
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+      
+      // Create a sanitized user object without the password
+      const userResponse = {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isAdmin: user.role === 'admin'
+      };
+      
+      res.json(userResponse);
+    } catch (error) {
+      res.status(500).json({ message: "Error during authentication" });
+    }
+  });
+
+  // Notification related routes
+  app.get("/api/notifications", async (req, res) => {
+    try {
+      const notifications = await storage.getAllNotifications();
+      res.json(notifications);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching notifications" });
+    }
+  });
+
+  app.post("/api/notifications", async (req, res) => {
+    try {
+      const parsedData = insertNotificationSchema.parse(req.body);
+      const notification = await storage.createNotification(parsedData);
+      res.status(201).json(notification);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid notification data" });
+    }
+  });
+
+  app.post("/api/notifications/:id/read", async (req, res) => {
+    try {
+      const notificationId = parseInt(req.params.id);
+      const updatedNotification = await storage.markNotificationAsRead(notificationId);
+      res.json(updatedNotification);
+    } catch (error) {
+      res.status(500).json({ message: "Error marking notification as read" });
+    }
+  });
+
+  // Conflict detection related routes
+  app.get("/api/conflicts", async (req, res) => {
+    try {
+      const conflicts = await storage.getAllConflicts();
+      res.json(conflicts);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching conflicts" });
+    }
+  });
+
+  // Dashboard stats
+  app.get("/api/dashboard/stats", async (req, res) => {
+    try {
+      const stats = await storage.getDashboardStats();
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Error fetching dashboard stats" });
+    }
+  });
+
+  const httpServer = createServer(app);
 
   return httpServer;
 }

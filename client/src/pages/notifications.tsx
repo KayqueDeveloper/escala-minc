@@ -1,213 +1,316 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { apiRequest, queryClient } from '@/lib/queryClient';
-import { useToast } from '@/hooks/use-toast';
-import { formatDateTime } from '@/lib/utils';
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { 
+  Search, 
+  Bell, 
+  CheckCircle, 
+  AlertTriangle,
+  ListFilter,
+  Calendar,
+  Repeat
+} from "lucide-react";
 
-const Notifications: React.FC = () => {
-  const { toast } = useToast();
-  const [currentUser] = useState(1); // Normally would come from auth context
+import { Sidebar } from "@/components/layout/sidebar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { 
+  Card, 
+  CardContent, 
+  CardHeader, 
+  CardTitle 
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatDate } from "@/lib/utils/date-utils";
+import { apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 
-  // Fetch notifications
+export default function Notifications() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  
   const { data: notifications, isLoading } = useQuery({
-    queryKey: [`/api/users/${currentUser}/notifications`],
+    queryKey: ['/api/notifications'],
   });
-
-  // Mark notification as read
+  
+  const { data: swapRequests, isLoading: isLoadingSwaps } = useQuery({
+    queryKey: ['/api/swap-requests'],
+  });
+  
   const markAsReadMutation = useMutation({
     mutationFn: async (notificationId: number) => {
-      return apiRequest('PATCH', `/api/notifications/${notificationId}/read`, {});
+      return apiRequest('POST', `/api/notifications/${notificationId}/read`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUser}/notifications`] });
-    },
-    onError: () => {
-      toast({
-        title: "Erro",
-        description: "Não foi possível marcar a notificação como lida",
-        variant: "destructive",
-      });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
     }
   });
-
-  // Delete notification
-  const deleteNotificationMutation = useMutation({
-    mutationFn: async (notificationId: number) => {
-      return apiRequest('DELETE', `/api/notifications/${notificationId}`, {});
+  
+  const approveSwapMutation = useMutation({
+    mutationFn: async (swapRequestId: number) => {
+      return apiRequest('POST', `/api/swap-requests/${swapRequestId}/approve`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUser}/notifications`] });
-      toast({
-        title: "Notificação excluída",
-        description: "A notificação foi removida com sucesso",
-        variant: "default",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Erro",
-        description: "Não foi possível excluir a notificação",
-        variant: "destructive",
-      });
+      queryClient.invalidateQueries({ queryKey: ['/api/swap-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
     }
   });
-
-  // Mark all as read
-  const markAllAsRead = async () => {
-    try {
-      // Get all unread notifications
-      const unreadNotifications = notifications.filter((notification: any) => !notification.isRead);
-      
-      // Mark each as read
-      await Promise.all(
-        unreadNotifications.map((notification: any) => 
-          markAsReadMutation.mutateAsync(notification.id)
-        )
-      );
-      
-      toast({
-        title: "Todas as notificações marcadas como lidas",
-        description: "Todas as notificações foram marcadas como lidas com sucesso",
-        variant: "default",
-      });
-    } catch (error) {
-      toast({
-        title: "Erro",
-        description: "Não foi possível marcar todas as notificações como lidas",
-        variant: "destructive",
-      });
+  
+  const rejectSwapMutation = useMutation({
+    mutationFn: async (swapRequestId: number) => {
+      return apiRequest('POST', `/api/swap-requests/${swapRequestId}/reject`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/swap-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
     }
-  };
-
-  // Format notification time
-  const getNotificationTimeString = (createdAt: string) => {
-    const now = new Date();
-    const notifDate = new Date(createdAt);
-    const diffMillis = now.getTime() - notifDate.getTime();
-    const diffMinutes = Math.floor(diffMillis / (1000 * 60));
-    const diffHours = Math.floor(diffMillis / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMillis / (1000 * 60 * 60 * 24));
-
-    if (diffMinutes < 60) {
-      return `há ${diffMinutes} minutos`;
-    } else if (diffHours < 24) {
-      return `há ${diffHours} horas`;
-    } else {
-      return `há ${diffDays} dias`;
-    }
-  };
-
-  // Get icon based on notification type
+  });
+  
+  // Apply search and type filters to notifications
+  const filteredNotifications = notifications?.filter(notification => {
+    const matchesSearch = 
+      notification.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      notification.message.toLowerCase().includes(searchTerm.toLowerCase());
+      
+    const matchesType = 
+      filterType === "all" || 
+      notification.type === filterType;
+      
+    return matchesSearch && matchesType;
+  });
+  
+  // Apply search filter to swap requests
+  const filteredSwapRequests = swapRequests?.filter(request => {
+    return (
+      request.requestor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      request.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      request.swapDetails?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
+  
+  // Get notification icon based on type
   const getNotificationIcon = (type: string) => {
     switch (type) {
+      case 'conflict':
+        return <AlertTriangle className="h-5 w-5 text-amber-500" />;
       case 'swap_request':
-        return 'swap_horiz';
-      case 'swap_request_update':
-        return 'update';
-      case 'schedule_published':
-        return 'event_available';
-      case 'schedule_updated':
-        return 'event_note';
+        return <Repeat className="h-5 w-5 text-primary-500" />;
+      case 'reminder':
+        return <Calendar className="h-5 w-5 text-blue-500" />;
       default:
-        return 'notifications';
+        return <Bell className="h-5 w-5 text-gray-400" />;
     }
   };
-
+  
   return (
-    <div className="p-4 md:p-6">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-medium text-neutral-dark">Notificações</h1>
-          <p className="text-neutral-medium">Acompanhe as atualizações e solicitações</p>
-        </div>
-        <div className="mt-4 md:mt-0">
-          <Button 
-            variant="outline"
-            onClick={markAllAsRead}
-            disabled={isLoading || !notifications?.some((n: any) => !n.isRead)}
-          >
-            <span className="material-icons mr-1 text-sm">done_all</span>
-            Marcar todas como lidas
-          </Button>
-        </div>
-      </div>
-
-      {/* Notifications List */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="divide-y divide-neutral-light">
-            {isLoading ? (
-              Array(5).fill(0).map((_, index) => (
-                <div key={index} className="p-4 animate-pulse">
-                  <div className="flex">
-                    <div className="rounded-full bg-neutral-100 h-10 w-10 flex items-center justify-center mr-3"></div>
-                    <div className="flex-1">
-                      <div className="h-4 w-3/4 bg-neutral-100 rounded mb-2"></div>
-                      <div className="h-3 w-1/2 bg-neutral-100 rounded mb-2"></div>
-                      <div className="h-3 w-1/4 bg-neutral-100 rounded"></div>
-                    </div>
-                  </div>
+    <div className="min-h-screen flex overflow-hidden bg-gray-50 font-sans">
+      <Sidebar />
+      
+      <div className="flex flex-col w-0 flex-1 overflow-hidden">
+        <main className="flex-1 relative z-0 overflow-y-auto focus:outline-none">
+          <div className="py-6">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
+              <h1 className="text-2xl font-semibold text-gray-900 font-heading">Notificações</h1>
+              
+              <div className="mt-6 flex flex-col md:flex-row gap-4 md:items-center justify-between">
+                <div className="w-full md:w-72 relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
+                  <Input
+                    placeholder="Buscar notificações..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </div>
-              ))
-            ) : notifications?.length === 0 ? (
-              <div className="py-12 px-4 text-center">
-                <span className="material-icons text-5xl text-neutral-medium mb-2">notifications_off</span>
-                <h3 className="text-lg font-medium text-neutral-dark mb-1">Sem notificações</h3>
-                <p className="text-neutral-medium">Você não possui notificações no momento</p>
+                
+                <div className="flex gap-2 items-center">
+                  <ListFilter className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm text-gray-500">Tipo:</span>
+                  <Select value={filterType} onValueChange={setFilterType}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Filtrar por tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas</SelectItem>
+                      <SelectItem value="conflict">Conflitos</SelectItem>
+                      <SelectItem value="swap_request">Trocas</SelectItem>
+                      <SelectItem value="reminder">Lembretes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            ) : (
-              notifications?.map((notification: any) => (
-                <div 
-                  key={notification.id} 
-                  className={`p-4 flex hover:bg-neutral-50 transition-colors ${!notification.isRead ? 'bg-blue-50' : ''}`}
-                >
-                  <div className={`rounded-full h-10 w-10 flex items-center justify-center mr-3 ${!notification.isRead ? 'bg-primary text-white' : 'bg-neutral-100'}`}>
-                    <span className="material-icons text-base">
-                      {getNotificationIcon(notification.type)}
-                    </span>
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start">
-                      <h3 className={`text-sm font-medium ${!notification.isRead ? 'text-primary' : 'text-neutral-dark'}`}>
-                        {notification.title}
-                      </h3>
-                      <div className="flex space-x-1">
-                        {!notification.isRead && (
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-7 w-7"
-                            onClick={() => markAsReadMutation.mutate(notification.id)}
-                          >
-                            <span className="material-icons text-sm text-neutral-medium">check</span>
-                          </Button>
-                        )}
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-7 w-7"
-                          onClick={() => deleteNotificationMutation.mutate(notification.id)}
-                        >
-                          <span className="material-icons text-sm text-neutral-medium">delete</span>
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-sm text-neutral-medium mt-1">{notification.message}</p>
-                    <p className="text-xs text-neutral-medium mt-2">
-                      {getNotificationTimeString(notification.createdAt)}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
+              
+              <Tabs defaultValue="notifications" className="mt-6">
+                <TabsList>
+                  <TabsTrigger value="notifications">
+                    Notificações
+                    {notifications?.filter(n => !n.read).length > 0 && (
+                      <Badge variant="destructive" className="ml-2">
+                        {notifications?.filter(n => !n.read).length}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="swap-requests">
+                    Solicitações de Troca
+                    {swapRequests?.filter(s => s.status === 'pending').length > 0 && (
+                      <Badge variant="destructive" className="ml-2">
+                        {swapRequests?.filter(s => s.status === 'pending').length}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="notifications">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg font-medium">Notificações</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {isLoading ? (
+                        <div className="py-10 text-center">
+                          <p className="text-gray-500">Carregando notificações...</p>
+                        </div>
+                      ) : filteredNotifications?.length === 0 ? (
+                        <div className="py-10 text-center">
+                          <p className="text-gray-500">Nenhuma notificação encontrada</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-200">
+                          {filteredNotifications?.map((notification) => (
+                            <div 
+                              key={notification.id} 
+                              className={`py-4 flex ${!notification.read ? 'bg-blue-50' : ''}`}
+                            >
+                              <div className="mr-4 flex-shrink-0 self-start pt-1">
+                                {getNotificationIcon(notification.type)}
+                              </div>
+                              <div className="flex-grow">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="text-sm font-medium">{notification.title}</h4>
+                                  <div className="ml-2 flex-shrink-0 flex">
+                                    <span className="text-xs text-gray-500">
+                                      {formatDate(notification.createdAt, 'dd MMM, HH:mm')}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="mt-1 text-sm text-gray-600">{notification.message}</p>
+                              </div>
+                              {!notification.read && (
+                                <div className="ml-4 flex-shrink-0">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm"
+                                    onClick={() => markAsReadMutation.mutate(notification.id)}
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-1" />
+                                    Marcar como lida
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                
+                <TabsContent value="swap-requests">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg font-medium">Solicitações de Troca</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {isLoadingSwaps ? (
+                        <div className="py-10 text-center">
+                          <p className="text-gray-500">Carregando solicitações...</p>
+                        </div>
+                      ) : filteredSwapRequests?.length === 0 ? (
+                        <div className="py-10 text-center">
+                          <p className="text-gray-500">Nenhuma solicitação de troca encontrada</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-200">
+                          {filteredSwapRequests?.map((request) => (
+                            <div key={request.id} className="py-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center">
+                                  <div className="flex-shrink-0">
+                                    <Avatar>
+                                      <AvatarImage src={request.requestor.avatarUrl} alt={request.requestor.name} />
+                                      <AvatarFallback>
+                                        {request.requestor.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  </div>
+                                  <div className="ml-4">
+                                    <div className="text-sm font-medium text-gray-900">{request.requestor.name}</div>
+                                    <div className="text-xs text-gray-500">{request.teamName} ({request.roleName})</div>
+                                  </div>
+                                </div>
+                                <div className="ml-2 flex-shrink-0 flex">
+                                  {request.status === 'pending' && (
+                                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pendente</Badge>
+                                  )}
+                                  {request.status === 'approved' && (
+                                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Aprovada</Badge>
+                                  )}
+                                  {request.status === 'rejected' && (
+                                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">Rejeitada</Badge>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-2 flex items-center">
+                                <Calendar className="h-4 w-4 text-gray-400 mr-2" />
+                                <span className="text-sm text-gray-600">{request.swapDetails}</span>
+                              </div>
+                              {request.reason && (
+                                <div className="mt-1 flex items-start">
+                                  <span className="text-xs text-gray-500 mt-0.5 mr-2">Motivo:</span>
+                                  <span className="text-sm text-gray-600">{request.reason}</span>
+                                </div>
+                              )}
+                              
+                              {request.status === 'pending' && (
+                                <div className="mt-3 flex justify-end space-x-3">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => rejectSwapMutation.mutate(request.id)}
+                                    disabled={rejectSwapMutation.isPending}
+                                  >
+                                    Rejeitar
+                                  </Button>
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={() => approveSwapMutation.mutate(request.id)}
+                                    disabled={approveSwapMutation.isPending}
+                                  >
+                                    Aprovar
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </main>
+      </div>
     </div>
   );
-};
-
-export default Notifications;
+}

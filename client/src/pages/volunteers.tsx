@@ -1,267 +1,200 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { User, Team } from "@shared/schema";
-import { Plus, Search, Filter, Edit, Trash2, Eye } from "lucide-react";
-import Sidebar from "@/components/layout/Sidebar";
-import Header from "@/components/layout/Header";
+import { 
+  Plus, 
+  Search, 
+  Mail, 
+  RefreshCw,
+  ListFilter, 
+  AlertTriangle
+} from "lucide-react";
+
+import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from "@/components/ui/table";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import VolunteerForm from "@/components/volunteers/VolunteerForm";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { VolunteerForm } from "@/components/volunteers/volunteer-form";
 
 export default function Volunteers() {
-  const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTeam, setSelectedTeam] = useState<string>("all");
-  const [showNewVolunteerDialog, setShowNewVolunteerDialog] = useState(false);
-  const [editingVolunteer, setEditingVolunteer] = useState<User | null>(null);
+  const [volunteerFormOpen, setVolunteerFormOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterTeam, setFilterTeam] = useState("all");
   
-  // Fetch volunteers
-  const { data: volunteers, isLoading } = useQuery<User[]>({
-    queryKey: ['/api/users'],
+  const { data: volunteers, isLoading } = useQuery({
+    queryKey: ['/api/volunteers'],
   });
   
-  // Fetch teams
-  const { data: teams } = useQuery<Team[]>({
+  const { data: teams } = useQuery({
     queryKey: ['/api/teams'],
   });
   
-  // Filter volunteers based on search query and selected team
+  // Apply search and team filters
   const filteredVolunteers = volunteers?.filter(volunteer => {
-    const matchesSearch = volunteer.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         volunteer.email.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    // If no team is selected or we're not filtering by team, return true
-    if (selectedTeam === "all") return matchesSearch;
-    
-    // Otherwise, filter by team membership
-    // Note: In a real app, we'd need to fetch team memberships for each volunteer
-    // For now, we'll assume this information is already included in the volunteer object
-    // or we'd have to make additional queries to get this information
-    return matchesSearch; // For now, ignore team filtering as we don't have that data readily available
-  }) || [];
-  
-  const handleDeleteVolunteer = async (volunteer: User) => {
-    if (confirm(`Deseja realmente excluir o voluntário "${volunteer.name}"?`)) {
-      try {
-        await apiRequest('DELETE', `/api/users/${volunteer.id}`);
-        
-        // Invalidate users query to refetch the data
-        queryClient.invalidateQueries({ queryKey: ['/api/users'] });
-        
-        toast({
-          title: "Voluntário excluído",
-          description: "O voluntário foi excluído com sucesso.",
-        });
-      } catch (error) {
-        console.error("Error deleting volunteer:", error);
-        toast({
-          title: "Erro ao excluir",
-          description: "Ocorreu um erro ao excluir o voluntário.",
-          variant: "destructive",
-        });
-      }
-    }
-  };
+    const matchesSearch = 
+      volunteer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      volunteer.email.toLowerCase().includes(searchTerm.toLowerCase());
+      
+    const matchesTeam = 
+      filterTeam === "all" || 
+      volunteer.teams.some(team => team.id.toString() === filterTeam);
+      
+    return matchesSearch && matchesTeam;
+  });
   
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex overflow-hidden bg-gray-50 font-sans">
       <Sidebar />
-      <main className="ml-64 flex-1 p-6">
-        <div className="max-w-7xl mx-auto">
-          <Header title="Voluntários" subtitle="Gerenciamento de pessoas" />
-          
-          <Card className="mb-6">
-            <CardContent className="p-6">
-              <div className="flex flex-col md:flex-row gap-4 items-end justify-between">
-                <div className="flex-1 max-w-md">
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
-                    <Input
-                      placeholder="Buscar voluntário por nome ou email..."
-                      className="pl-8"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
+      
+      <div className="flex flex-col w-0 flex-1 overflow-hidden">
+        <main className="flex-1 relative z-0 overflow-y-auto focus:outline-none">
+          <div className="py-6">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
+              <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-semibold text-gray-900 font-heading">Voluntários</h1>
+                <Button onClick={() => setVolunteerFormOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Novo Voluntário
+                </Button>
+              </div>
+              
+              <div className="mt-6 flex flex-col md:flex-row gap-4 md:items-center justify-between">
+                <div className="w-full md:w-72 relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
+                  <Input
+                    placeholder="Buscar voluntários..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </div>
                 
-                <div className="flex flex-col md:flex-row gap-2">
-                  <div className="w-full md:w-48">
-                    <Select
-                      value={selectedTeam}
-                      onValueChange={setSelectedTeam}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Filtrar por time" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os times</SelectItem>
-                        {teams?.map(team => (
-                          <SelectItem key={team.id} value={team.id.toString()}>
-                            {team.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <Button
-                    onClick={() => {
-                      setEditingVolunteer(null);
-                      setShowNewVolunteerDialog(true);
-                    }}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Novo Voluntário
-                  </Button>
+                <div className="flex gap-2 items-center">
+                  <ListFilter className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm text-gray-500">Time:</span>
+                  <Select value={filterTeam} onValueChange={setFilterTeam}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Filtrar por time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Times</SelectItem>
+                      {teams?.map(team => (
+                        <SelectItem key={team.id} value={team.id.toString()}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle>Voluntários ({filteredVolunteers.length})</CardTitle>
-              <CardDescription>Lista de todas as pessoas cadastradas no sistema</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nome</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Telefone</TableHead>
-                      <TableHead>Função</TableHead>
-                      <TableHead>Times</TableHead>
-                      <TableHead className="w-[100px]">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredVolunteers.length > 0 ? (
-                      filteredVolunteers.map((volunteer) => (
-                        <TableRow key={volunteer.id}>
-                          <TableCell>
-                            <div className="flex items-center">
-                              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold mr-3">
-                                {volunteer.name.charAt(0)}
-                              </div>
-                              <span className="font-medium">{volunteer.name}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>{volunteer.email}</TableCell>
-                          <TableCell>{volunteer.phone}</TableCell>
-                          <TableCell>
-                            <div className="capitalize">
-                              {volunteer.role === "admin" ? "Administrador" : 
-                               volunteer.role === "leader" ? "Líder" : "Voluntário"}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {/* In a real app, we'd show a list of teams the volunteer belongs to */}
-                            {/* This is just a placeholder */}
-                            <div className="flex gap-1">
-                              <span className="inline-flex text-xs px-2 py-1 bg-slate-100 rounded-full">
-                                Transmissão
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingVolunteer(volunteer);
-                                    setShowNewVolunteerDialog(true);
-                                  }}
-                                >
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  <span>Editar</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDeleteVolunteer(volunteer)}
-                                  className="text-red-600"
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  <span>Excluir</span>
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-slate-500">
-                          {isLoading ? "Carregando voluntários..." : "Nenhum voluntário encontrado"}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Dialog 
-            open={showNewVolunteerDialog} 
-            onOpenChange={setShowNewVolunteerDialog}
-          >
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingVolunteer ? "Editar Voluntário" : "Novo Voluntário"}
-                </DialogTitle>
-              </DialogHeader>
-              <VolunteerForm 
-                volunteer={editingVolunteer || undefined}
-                onSuccess={() => setShowNewVolunteerDialog(false)}
-              />
-            </DialogContent>
-          </Dialog>
-        </div>
-      </main>
+              
+              <Card className="mt-6">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg font-medium">Voluntários</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoading ? (
+                    <div className="py-10 text-center">
+                      <p className="text-gray-500">Carregando voluntários...</p>
+                    </div>
+                  ) : filteredVolunteers?.length === 0 ? (
+                    <div className="py-10 text-center">
+                      <p className="text-gray-500">Nenhum voluntário encontrado</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Voluntário</TableHead>
+                            <TableHead>Times</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredVolunteers?.map((volunteer) => (
+                            <TableRow key={volunteer.id}>
+                              <TableCell>
+                                <div className="flex items-center space-x-3">
+                                  <Avatar>
+                                    <AvatarImage src={volunteer.avatarUrl} alt={volunteer.name} />
+                                    <AvatarFallback>
+                                      {volunteer.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div>
+                                    <div className="font-medium">{volunteer.name}</div>
+                                    <div className="text-sm text-gray-500">{volunteer.email}</div>
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {volunteer.teams.map(team => (
+                                    <Badge key={team.id} variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                      {team.name} ({team.role})
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {volunteer.hasConflicts ? (
+                                  <Badge variant="destructive">
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Conflito
+                                  </Badge>
+                                ) : volunteer.isTrainee ? (
+                                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                                    Em treinamento
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                    Ativo
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button variant="ghost" size="sm">
+                                    <Mail className="h-4 w-4 mr-1" />
+                                    Contatar
+                                  </Button>
+                                  <Button variant="ghost" size="sm">
+                                    <RefreshCw className="h-4 w-4 mr-1" />
+                                    Editar
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </main>
+      </div>
+      <VolunteerForm open={volunteerFormOpen} onOpenChange={setVolunteerFormOpen} />
     </div>
   );
 }

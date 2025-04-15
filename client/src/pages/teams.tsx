@@ -1,235 +1,175 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Team, User } from "@shared/schema";
-import { Plus, Search, Edit, Trash2, Users } from "lucide-react";
-import Sidebar from "@/components/layout/Sidebar";
-import Header from "@/components/layout/Header";
+import { 
+  Plus, 
+  Search, 
+  Users, 
+  PlusCircle, 
+  Edit,
+  ListFilter 
+} from "lucide-react";
+
+import { Sidebar } from "@/components/layout/sidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import TeamForm from "@/components/teams/TeamForm";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { TeamForm } from "@/components/teams/team-form";
+import { RoleForm } from "@/components/teams/role-form";
 
 export default function Teams() {
-  const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showNewTeamDialog, setShowNewTeamDialog] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [teamFormOpen, setTeamFormOpen] = useState(false);
+  const [roleFormOpen, setRoleFormOpen] = useState(false);
+  const [currentTeamId, setCurrentTeamId] = useState<number | undefined>(undefined);
+  const [searchTerm, setSearchTerm] = useState("");
   
-  // Fetch teams
-  const { data: teams, isLoading } = useQuery<Team[]>({
-    queryKey: ['/api/teams'],
+  const { data: teams, isLoading } = useQuery({
+    queryKey: ['/api/teams/with-roles'],
   });
   
-  // Fetch users to get team leaders
-  const { data: users } = useQuery<User[]>({
-    queryKey: ['/api/users'],
-  });
-  
-  // Filter teams based on search query
+  // Apply search filter
   const filteredTeams = teams?.filter(team => {
-    return team.name.toLowerCase().includes(searchQuery.toLowerCase());
-  }) || [];
+    return (
+      team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      team.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      team.leader?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      team.roles.some(role => role.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  });
   
-  // Helper function to get leader name
-  const getLeaderName = (leaderId?: number) => {
-    if (!leaderId) return "-";
-    const leader = users?.find(user => user.id === leaderId);
-    return leader?.name || "-";
-  };
-  
-  const handleDeleteTeam = async (team: Team) => {
-    if (confirm(`Deseja realmente excluir o time "${team.name}"?`)) {
-      try {
-        await apiRequest('DELETE', `/api/teams/${team.id}`);
-        
-        // Invalidate teams query to refetch the data
-        queryClient.invalidateQueries({ queryKey: ['/api/teams'] });
-        
-        toast({
-          title: "Time excluído",
-          description: "O time foi excluído com sucesso.",
-        });
-      } catch (error) {
-        console.error("Error deleting team:", error);
-        toast({
-          title: "Erro ao excluir",
-          description: "Ocorreu um erro ao excluir o time.",
-          variant: "destructive",
-        });
-      }
-    }
+  const openRoleForm = (teamId: number) => {
+    setCurrentTeamId(teamId);
+    setRoleFormOpen(true);
   };
   
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex overflow-hidden bg-gray-50 font-sans">
       <Sidebar />
-      <main className="ml-64 flex-1 p-6">
-        <div className="max-w-7xl mx-auto">
-          <Header title="Times" subtitle="Gerenciamento de equipes e ministérios" />
-          
-          <Card className="mb-6">
-            <CardContent className="p-6">
-              <div className="flex flex-col md:flex-row gap-4 items-end justify-between">
-                <div className="flex-1 max-w-md">
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
-                    <Input
-                      placeholder="Buscar time por nome..."
-                      className="pl-8"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
-                </div>
-                
-                <Button
-                  onClick={() => {
-                    setEditingTeam(null);
-                    setShowNewTeamDialog(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
+      
+      <div className="flex flex-col w-0 flex-1 overflow-hidden">
+        <main className="flex-1 relative z-0 overflow-y-auto focus:outline-none">
+          <div className="py-6">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
+              <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-semibold text-gray-900 font-heading">Times</h1>
+                <Button onClick={() => setTeamFormOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
                   Novo Time
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle>Times ({filteredTeams.length})</CardTitle>
-              <CardDescription>Lista de todas as equipes e ministérios cadastrados</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nome</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead>Líder</TableHead>
-                      <TableHead>Membros</TableHead>
-                      <TableHead>Funções</TableHead>
-                      <TableHead className="w-[100px]">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredTeams.length > 0 ? (
-                      filteredTeams.map((team) => (
-                        <TableRow key={team.id}>
-                          <TableCell className="font-medium">{team.name}</TableCell>
-                          <TableCell className="max-w-xs truncate">
-                            {team.description || "-"}
-                          </TableCell>
-                          <TableCell>{getLeaderName(team.leaderId)}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center">
-                              <Users className="h-4 w-4 mr-1 text-slate-400" />
-                              <span>
-                                {/* In a real app, we'd fetch and display the actual member count */}
-                                {Math.floor(Math.random() * 20) + 1} membros
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {/* In a real app, we'd fetch and display the actual roles */}
-                            <div className="flex flex-wrap gap-1">
-                              <span className="text-xs px-2 py-1 bg-slate-100 rounded-full">
-                                Coordenador
-                              </span>
-                              <span className="text-xs px-2 py-1 bg-slate-100 rounded-full">
-                                Operador
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingTeam(team);
-                                    setShowNewTeamDialog(true);
-                                  }}
-                                >
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  <span>Editar</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDeleteTeam(team)}
-                                  className="text-red-600"
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  <span>Excluir</span>
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-slate-500">
-                          {isLoading ? "Carregando times..." : "Nenhum time encontrado"}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+              
+              <div className="mt-6 flex flex-col md:flex-row gap-4 md:items-center justify-between">
+                <div className="w-full md:w-72 relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
+                  <Input
+                    placeholder="Buscar times..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
               </div>
-            </CardContent>
-          </Card>
-          
-          <Dialog 
-            open={showNewTeamDialog} 
-            onOpenChange={setShowNewTeamDialog}
-          >
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingTeam ? "Editar Time" : "Novo Time"}
-                </DialogTitle>
-              </DialogHeader>
-              <TeamForm 
-                team={editingTeam || undefined}
-                onSuccess={() => setShowNewTeamDialog(false)}
-              />
-            </DialogContent>
-          </Dialog>
-        </div>
-      </main>
+              
+              {isLoading ? (
+                <div className="py-10 text-center">
+                  <p className="text-gray-500">Carregando times...</p>
+                </div>
+              ) : filteredTeams?.length === 0 ? (
+                <div className="py-10 text-center">
+                  <p className="text-gray-500">Nenhum time encontrado</p>
+                </div>
+              ) : (
+                <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {filteredTeams?.map((team) => (
+                    <Card key={team.id} className="overflow-hidden">
+                      <CardHeader className="bg-primary-50 pb-3">
+                        <div className="flex justify-between items-start">
+                          <CardTitle className="text-lg font-semibold text-primary-700">{team.name}</CardTitle>
+                          <Button variant="ghost" size="sm" onClick={() => {/* Open edit team dialog */}}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        {team.leader && (
+                          <div className="flex items-center space-x-2 mt-2">
+                            <Avatar className="h-6 w-6">
+                              <AvatarImage src={team.leader.avatarUrl} alt={team.leader.name} />
+                              <AvatarFallback>
+                                {team.leader.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="text-sm text-gray-600">
+                              Líder: {team.leader.name}
+                            </span>
+                          </div>
+                        )}
+                      </CardHeader>
+                      <CardContent className="p-4">
+                        {team.description && (
+                          <p className="text-sm text-gray-600 mb-4">{team.description}</p>
+                        )}
+                        
+                        <div className="flex justify-between items-center mb-3">
+                          <h3 className="text-sm font-medium text-gray-900">Funções</h3>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 px-2 text-xs"
+                            onClick={() => openRoleForm(team.id)}
+                          >
+                            <PlusCircle className="h-3.5 w-3.5 mr-1" />
+                            Adicionar Função
+                          </Button>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          {team.roles.length === 0 ? (
+                            <p className="text-sm text-gray-500 italic">Nenhuma função definida</p>
+                          ) : (
+                            team.roles.map((role, index) => (
+                              <div key={role.id} className="flex justify-between py-1">
+                                <span className="text-sm">{role.name}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {role.volunteerCount || 0} voluntários
+                                </Badge>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        
+                        <Separator className="my-4" />
+                        
+                        <div className="mt-4 flex justify-between items-center">
+                          <div className="flex items-center space-x-1">
+                            <Users className="h-4 w-4 text-gray-400" />
+                            <span className="text-sm text-gray-600">
+                              {team.volunteerCount || 0} voluntários
+                            </span>
+                          </div>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => window.location.href = `/teams/${team.id}`}
+                          >
+                            Ver Detalhes
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
+      <TeamForm open={teamFormOpen} onOpenChange={setTeamFormOpen} />
+      <RoleForm 
+        open={roleFormOpen} 
+        onOpenChange={setRoleFormOpen}
+        teamId={currentTeamId}
+      />
     </div>
   );
 }

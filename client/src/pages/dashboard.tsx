@@ -1,37 +1,30 @@
-import { useEffect } from "react";
-import Sidebar from "@/components/layout/Sidebar";
-import Header from "@/components/layout/Header";
-import QuickActions from "@/components/dashboard/QuickActions";
-import Calendar from "@/components/dashboard/Calendar";
-import PendingRequests from "@/components/dashboard/PendingRequests";
-import TeamStats from "@/components/dashboard/TeamStats";
-import ScheduleTable from "@/components/dashboard/ScheduleTable";
+import { Sidebar } from "@/components/layout/sidebar";
+import { StatsCards } from "@/components/dashboard/stats-cards";
+import { UpcomingServices } from "@/components/dashboard/upcoming-services";
+import { ConflictList } from "@/components/dashboard/conflict-list";
+import { SwapRequests } from "@/components/dashboard/swap-requests";
 
 export default function Dashboard() {
-  useEffect(() => {
-    // Set document title
-    document.title = "Dashboard - EscalaFácil";
-  }, []);
-
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex overflow-hidden bg-gray-50 font-sans">
       <Sidebar />
-      <main className="ml-64 flex-1 p-6">
-        <div className="max-w-7xl mx-auto">
-          <Header title="Dashboard" subtitle="Gerenciamento de Escalas" />
-          
-          <QuickActions />
-          
-          <Calendar />
-          
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <PendingRequests />
-            <TeamStats />
+      
+      <div className="flex flex-col w-0 flex-1 overflow-hidden">
+        <main className="flex-1 relative z-0 overflow-y-auto focus:outline-none">
+          <div className="py-6">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
+              <h1 className="text-2xl font-semibold text-gray-900 font-heading">Dashboard</h1>
+            </div>
+            
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
+              <StatsCards />
+              <UpcomingServices />
+              <ConflictList />
+              <SwapRequests />
+            </div>
           </div>
-          
-          <ScheduleTable />
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
