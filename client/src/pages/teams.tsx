@@ -1,110 +1,235 @@
-import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
-import TeamForm from '@/components/teams/team-form';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { apiRequest } from '@/lib/queryClient';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Team, User } from "@shared/schema";
+import { Plus, Search, Edit, Trash2, Users } from "lucide-react";
+import Sidebar from "@/components/layout/Sidebar";
+import Header from "@/components/layout/Header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import TeamForm from "@/components/teams/TeamForm";
 
-const Teams: React.FC = () => {
-  const [selectedTeam, setSelectedTeam] = useState<any>(null);
-  const [isTeamFormOpen, setIsTeamFormOpen] = useState(false);
-
-  // Fetch teams data
-  const { data: teams, isLoading } = useQuery({
+export default function Teams() {
+  const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showNewTeamDialog, setShowNewTeamDialog] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  
+  // Fetch teams
+  const { data: teams, isLoading } = useQuery<Team[]>({
     queryKey: ['/api/teams'],
   });
-
-  // Handle new team button click
-  const handleNewTeam = () => {
-    setSelectedTeam(null);
-    setIsTeamFormOpen(true);
+  
+  // Fetch users to get team leaders
+  const { data: users } = useQuery<User[]>({
+    queryKey: ['/api/users'],
+  });
+  
+  // Filter teams based on search query
+  const filteredTeams = teams?.filter(team => {
+    return team.name.toLowerCase().includes(searchQuery.toLowerCase());
+  }) || [];
+  
+  // Helper function to get leader name
+  const getLeaderName = (leaderId?: number) => {
+    if (!leaderId) return "-";
+    const leader = users?.find(user => user.id === leaderId);
+    return leader?.name || "-";
   };
-
-  // Handle edit team
-  const handleEditTeam = (team: any) => {
-    setSelectedTeam(team);
-    setIsTeamFormOpen(true);
+  
+  const handleDeleteTeam = async (team: Team) => {
+    if (confirm(`Deseja realmente excluir o time "${team.name}"?`)) {
+      try {
+        await apiRequest('DELETE', `/api/teams/${team.id}`);
+        
+        // Invalidate teams query to refetch the data
+        queryClient.invalidateQueries({ queryKey: ['/api/teams'] });
+        
+        toast({
+          title: "Time excluído",
+          description: "O time foi excluído com sucesso.",
+        });
+      } catch (error) {
+        console.error("Error deleting team:", error);
+        toast({
+          title: "Erro ao excluir",
+          description: "Ocorreu um erro ao excluir o time.",
+          variant: "destructive",
+        });
+      }
+    }
   };
   
   return (
-    <div className="p-4 md:p-6">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-medium text-neutral-dark">Times</h1>
-          <p className="text-neutral-medium">Gerencie os times de ministério e suas funções</p>
-        </div>
-        <div className="mt-4 md:mt-0">
-          <Button 
-            onClick={handleNewTeam}
-            className="bg-primary text-white hover:bg-primary-dark"
-          >
-            <span className="material-icons mr-1 text-sm">add</span>
-            Novo Time
-          </Button>
-        </div>
-      </div>
-
-      {/* Teams Grid */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
-            <Card key={i} className="animate-pulse">
-              <CardHeader className="bg-neutral-100 h-24"></CardHeader>
-              <CardContent className="p-4">
-                <div className="h-6 bg-neutral-100 rounded mb-2"></div>
-                <div className="h-4 bg-neutral-100 rounded w-3/4"></div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {teams?.map((team: any) => (
-            <Card key={team.id} className="overflow-hidden">
-              <div 
-                className="h-20 flex items-center justify-center"
-                style={{ backgroundColor: team.color || '#3f51b5' }}
-              >
-                <span className="material-icons text-white text-4xl">groups</span>
-              </div>
-              <CardContent className="p-4">
-                <h3 className="text-lg font-medium text-neutral-dark mb-1">{team.name}</h3>
-                <p className="text-sm text-neutral-medium mb-3">{team.description || 'Sem descrição'}</p>
-                
-                <div className="flex justify-between mt-4">
-                  <Badge variant="outline" className="flex items-center gap-1">
-                    <span className="material-icons text-xs">person</span>
-                    <span>12 voluntários</span>
-                  </Badge>
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => handleEditTeam(team)}
-                  >
-                    <span className="material-icons text-primary text-base">edit</span>
-                  </Button>
+    <div className="min-h-screen flex bg-slate-50">
+      <Sidebar />
+      <main className="ml-64 flex-1 p-6">
+        <div className="max-w-7xl mx-auto">
+          <Header title="Times" subtitle="Gerenciamento de equipes e ministérios" />
+          
+          <Card className="mb-6">
+            <CardContent className="p-6">
+              <div className="flex flex-col md:flex-row gap-4 items-end justify-between">
+                <div className="flex-1 max-w-md">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="Buscar time por nome..."
+                      className="pl-8"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+                
+                <Button
+                  onClick={() => {
+                    setEditingTeam(null);
+                    setShowNewTeamDialog(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Novo Time
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-0">
+              <CardTitle>Times ({filteredTeams.length})</CardTitle>
+              <CardDescription>Lista de todas as equipes e ministérios cadastrados</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead>Líder</TableHead>
+                      <TableHead>Membros</TableHead>
+                      <TableHead>Funções</TableHead>
+                      <TableHead className="w-[100px]">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredTeams.length > 0 ? (
+                      filteredTeams.map((team) => (
+                        <TableRow key={team.id}>
+                          <TableCell className="font-medium">{team.name}</TableCell>
+                          <TableCell className="max-w-xs truncate">
+                            {team.description || "-"}
+                          </TableCell>
+                          <TableCell>{getLeaderName(team.leaderId)}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center">
+                              <Users className="h-4 w-4 mr-1 text-slate-400" />
+                              <span>
+                                {/* In a real app, we'd fetch and display the actual member count */}
+                                {Math.floor(Math.random() * 20) + 1} membros
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {/* In a real app, we'd fetch and display the actual roles */}
+                            <div className="flex flex-wrap gap-1">
+                              <span className="text-xs px-2 py-1 bg-slate-100 rounded-full">
+                                Coordenador
+                              </span>
+                              <span className="text-xs px-2 py-1 bg-slate-100 rounded-full">
+                                Operador
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setEditingTeam(team);
+                                    setShowNewTeamDialog(true);
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  <span>Editar</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteTeam(team)}
+                                  className="text-red-600"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  <span>Excluir</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                          {isLoading ? "Carregando times..." : "Nenhum time encontrado"}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Dialog 
+            open={showNewTeamDialog} 
+            onOpenChange={setShowNewTeamDialog}
+          >
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingTeam ? "Editar Time" : "Novo Time"}
+                </DialogTitle>
+              </DialogHeader>
+              <TeamForm 
+                team={editingTeam || undefined}
+                onSuccess={() => setShowNewTeamDialog(false)}
+              />
+            </DialogContent>
+          </Dialog>
         </div>
-      )}
-
-      {/* Team Form Dialog */}
-      <Dialog open={isTeamFormOpen} onOpenChange={setIsTeamFormOpen}>
-        <DialogContent className="max-w-2xl">
-          <TeamForm 
-            team={selectedTeam} 
-            onClose={() => setIsTeamFormOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      </main>
     </div>
   );
-};
-
-export default Teams;
+}

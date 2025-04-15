@@ -1,193 +1,136 @@
-import { pgTable, text, serial, integer, boolean, primaryKey, timestamp, json } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// User (Volunteer/Leader) schema
+// User model
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   name: text("name").notNull(),
   email: text("email").notNull(),
-  phone: text("phone"),
-  role: text("role").default("volunteer").notNull(), // volunteer, leader, admin
-  avatar: text("avatar"),
+  phone: text("phone").notNull(),
+  role: text("role").default("volunteer"),
+  isAdmin: boolean("is_admin").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-});
-
-// Teams schema
+// Team model
 export const teams = pgTable("teams", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  leaderId: integer("leader_id").references(() => users.id), // Team leader
-  color: text("color").default("#3f51b5"), // Team color for UI display
+  leaderId: integer("leader_id").references(() => users.id),
 });
 
-export const insertTeamSchema = createInsertSchema(teams).omit({
-  id: true,
-});
-
-// Team roles (functions specific to each team)
-export const teamRoles = pgTable("team_roles", {
+// Role model
+export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
-  teamId: integer("team_id").references(() => teams.id).notNull(),
-  name: text("name").notNull(), // Role name like "VMix", "Freehand", etc.
-  description: text("description"),
-  requiresTraining: boolean("requires_training").default(false),
+  name: text("name").notNull(),
+  teamId: integer("team_id").references(() => teams.id),
 });
 
-export const insertTeamRoleSchema = createInsertSchema(teamRoles).omit({
-  id: true,
-});
-
-// Team membership links users to teams
+// Team Member model (connects volunteers to teams)
 export const teamMembers = pgTable("team_members", {
-  userId: integer("user_id").references(() => users.id).notNull(),
-  teamId: integer("team_id").references(() => teams.id).notNull(),
-  roleIds: text("role_ids").array(), // Array of role IDs the user can perform in this team
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  teamId: integer("team_id").references(() => teams.id),
+  roleId: integer("role_id").references(() => roles.id),
   isTrainee: boolean("is_trainee").default(false),
-  isActive: boolean("is_active").default(true),
-}, (table) => {
-  return {
-    pk: primaryKey({ columns: [table.userId, table.teamId] }),
-  };
 });
 
-export const insertTeamMemberSchema = createInsertSchema(teamMembers);
+// Service model (regular worship services)
+export const services = pgTable("services", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  time: text("time").notNull(), // E.g. "9h", "11h", "18h"
+  dayOfWeek: integer("day_of_week").notNull(), // 0 = Sunday, 1 = Monday, etc.
+});
 
-// Events (services, special events)
+// Events model (special events)
 export const events = pgTable("events", {
   id: serial("id").primaryKey(),
-  name: text("name").notNull(), // e.g., "Culto da Manhã"
+  name: text("name").notNull(),
   date: timestamp("date").notNull(),
-  endTime: timestamp("end_time").notNull(),
-  location: text("location"),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
   description: text("description"),
-  isRecurring: boolean("is_recurring").default(false),
-  recurringPattern: json("recurring_pattern").default({}), // For recurring events
 });
 
-export const insertEventSchema = createInsertSchema(events).omit({
-  id: true,
-});
-
-// Schedules for team members
+// Schedule model
 export const schedules = pgTable("schedules", {
   id: serial("id").primaryKey(),
-  eventId: integer("event_id").references(() => events.id).notNull(),
-  teamId: integer("team_id").references(() => teams.id).notNull(),
-  status: text("status").default("draft").notNull(), // draft, published
+  teamId: integer("team_id").references(() => teams.id),
+  serviceId: integer("service_id").references(() => services.id),
+  eventId: integer("event_id").references(() => events.id),
+  date: timestamp("date").notNull(),
+  status: text("status").default("draft"), // draft, published, completed
   createdBy: integer("created_by").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-  notes: text("notes"),
 });
 
-export const insertScheduleSchema = createInsertSchema(schedules).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-// Schedule assignments link users to specific roles in a schedule
-export const scheduleAssignments = pgTable("schedule_assignments", {
+// Schedule details model (connects schedules to roles and volunteers)
+export const scheduleDetails = pgTable("schedule_details", {
   id: serial("id").primaryKey(),
-  scheduleId: integer("schedule_id").references(() => schedules.id).notNull(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  roleId: integer("role_id").references(() => teamRoles.id).notNull(),
-  hasTrainee: boolean("has_trainee").default(false),
-  traineeId: integer("trainee_id").references(() => users.id), // Optional trainee
+  scheduleId: integer("schedule_id").references(() => schedules.id),
+  roleId: integer("role_id").references(() => roles.id),
+  volunteerId: integer("volunteer_id").references(() => users.id),
+  traineeId: integer("trainee_id").references(() => users.id),
+  status: text("status").default("pending"), // pending, confirmed, unavailable
 });
 
-export const insertScheduleAssignmentSchema = createInsertSchema(scheduleAssignments).omit({
-  id: true,
-});
-
-// Volunteer availability rules
+// Availability Rules model
 export const availabilityRules = pgTable("availability_rules", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  dayOfWeek: integer("day_of_week"), // 0-6 (Sunday-Saturday), null means any day
-  startTime: text("start_time"), // Format: "HH:MM"
-  endTime: text("end_time"), // Format: "HH:MM"
-  isAvailable: boolean("is_available").default(false).notNull(), // false means not available in this time slot
-  reason: text("reason"),
-  startDate: timestamp("start_date"), // Start date for temp unavailability
-  endDate: timestamp("end_date"), // End date for temp unavailability
+  userId: integer("user_id").references(() => users.id),
+  description: text("description").notNull(),
+  // Store rule details in JSON format
+  // E.g. { type: "service", serviceId: 1, isAvailable: false }
+  // Or { type: "date", date: "2023-07-15", isAvailable: false }
+  rule: json("rule").notNull(),
 });
 
-export const insertAvailabilityRuleSchema = createInsertSchema(availabilityRules).omit({
-  id: true,
-});
-
-// Swap requests
+// Swap Requests model
 export const swapRequests = pgTable("swap_requests", {
   id: serial("id").primaryKey(),
-  requesterId: integer("requester_id").references(() => users.id).notNull(),
-  scheduleId: integer("schedule_id").references(() => schedules.id).notNull(),
-  assignmentId: integer("assignment_id").references(() => scheduleAssignments.id).notNull(),
-  replacementId: integer("replacement_id").references(() => users.id), // Optional proposed replacement
-  status: text("status").default("pending").notNull(), // pending, approved, rejected
-  reason: text("reason"),
+  requesterId: integer("requester_id").references(() => users.id),
+  replacementId: integer("replacement_id").references(() => users.id),
+  scheduleDetailId: integer("schedule_detail_id").references(() => scheduleDetails.id),
+  status: text("status").default("pending"), // pending, approved, rejected
   createdAt: timestamp("created_at").defaultNow(),
-  resolvedBy: integer("resolved_by").references(() => users.id), // Leader who approved/rejected
   resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  reason: text("reason"),
 });
 
-export const insertSwapRequestSchema = createInsertSchema(swapRequests).omit({
-  id: true,
-  createdAt: true,
-  resolvedAt: true,
-});
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertTeamSchema = createInsertSchema(teams).omit({ id: true });
+export const insertRoleSchema = createInsertSchema(roles).omit({ id: true });
+export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({ id: true });
+export const insertServiceSchema = createInsertSchema(services).omit({ id: true });
+export const insertEventSchema = createInsertSchema(events).omit({ id: true });
+export const insertScheduleSchema = createInsertSchema(schedules).omit({ id: true });
+export const insertScheduleDetailSchema = createInsertSchema(scheduleDetails).omit({ id: true });
+export const insertAvailabilityRuleSchema = createInsertSchema(availabilityRules).omit({ id: true });
+export const insertSwapRequestSchema = createInsertSchema(swapRequests).omit({ id: true, createdAt: true, resolvedAt: true });
 
-// Notifications
-export const notifications = pgTable("notifications", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  type: text("type").notNull(), // e.g., "swap_request", "schedule_published"
-  title: text("title").notNull(),
-  message: text("message"),
-  relatedId: integer("related_id"), // ID of related entity (e.g., swap_request id)
-  isRead: boolean("is_read").default(false),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertNotificationSchema = createInsertSchema(notifications).omit({
-  id: true,
-  createdAt: true,
-});
-
-// Type exports
-export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
-
-export type Team = typeof teams.$inferSelect;
 export type InsertTeam = z.infer<typeof insertTeamSchema>;
-
-export type TeamRole = typeof teamRoles.$inferSelect;
-export type InsertTeamRole = z.infer<typeof insertTeamRoleSchema>;
-
-export type TeamMember = typeof teamMembers.$inferSelect;
+export type InsertRole = z.infer<typeof insertRoleSchema>;
 export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
-
-export type Event = typeof events.$inferSelect;
+export type InsertService = z.infer<typeof insertServiceSchema>;
 export type InsertEvent = z.infer<typeof insertEventSchema>;
-
-export type Schedule = typeof schedules.$inferSelect;
 export type InsertSchedule = z.infer<typeof insertScheduleSchema>;
-
-export type ScheduleAssignment = typeof scheduleAssignments.$inferSelect;
-export type InsertScheduleAssignment = z.infer<typeof insertScheduleAssignmentSchema>;
-
-export type AvailabilityRule = typeof availabilityRules.$inferSelect;
+export type InsertScheduleDetail = z.infer<typeof insertScheduleDetailSchema>;
 export type InsertAvailabilityRule = z.infer<typeof insertAvailabilityRuleSchema>;
-
-export type SwapRequest = typeof swapRequests.$inferSelect;
 export type InsertSwapRequest = z.infer<typeof insertSwapRequestSchema>;
 
-export type Notification = typeof notifications.$inferSelect;
-export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type User = typeof users.$inferSelect;
+export type Team = typeof teams.$inferSelect;
+export type Role = typeof roles.$inferSelect;
+export type TeamMember = typeof teamMembers.$inferSelect;
+export type Service = typeof services.$inferSelect;
+export type Event = typeof events.$inferSelect;
+export type Schedule = typeof schedules.$inferSelect;
+export type ScheduleDetail = typeof scheduleDetails.$inferSelect;
+export type AvailabilityRule = typeof availabilityRules.$inferSelect;
+export type SwapRequest = typeof swapRequests.$inferSelect;

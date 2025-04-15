@@ -1,799 +1,889 @@
-import express, { type Express, Request, Response } from "express";
+import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { 
-  insertUserSchema, insertTeamSchema, insertTeamRoleSchema, 
-  insertTeamMemberSchema, insertEventSchema, insertScheduleSchema,
-  insertScheduleAssignmentSchema, insertAvailabilityRuleSchema,
-  insertSwapRequestSchema, insertNotificationSchema,
+  insertUserSchema, insertTeamSchema, insertRoleSchema, insertTeamMemberSchema,
+  insertServiceSchema, insertEventSchema, insertScheduleSchema, insertScheduleDetailSchema,
+  insertAvailabilityRuleSchema, insertSwapRequestSchema
 } from "@shared/schema";
-import { ZodError } from "zod";
+import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Helper function to handle validation errors
-  const validateRequest = (schema: any, data: any) => {
-    try {
-      return { success: true, data: schema.parse(data) };
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return { 
-          success: false, 
-          error: error.errors.map(e => ({
-            path: e.path.join('.'),
-            message: e.message
-          }))
-        };
-      }
-      return { success: false, error: "Invalid request data" };
-    }
-  };
+  const httpServer = createServer(app);
 
-  // Error handler middleware
-  const handleError = (res: Response, error: any) => {
-    console.error(error);
-    if (error instanceof ZodError) {
-      return res.status(400).json({ 
-        error: "Validation error", 
-        details: error.errors 
-      });
+  // Auth Routes
+  app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ message: 'Username and password are required' });
     }
-    res.status(500).json({ error: "Internal server error" });
-  };
-
-  // ===== User Routes =====
-  app.get("/api/users", async (req, res) => {
+    
     try {
-      const users = await storage.getUsers();
-      res.json(users);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.get("/api/users/:id", async (req, res) => {
-    try {
-      const user = await storage.getUser(Number(req.params.id));
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      res.json(user);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.post("/api/users", async (req, res) => {
-    try {
-      const validation = validateRequest(insertUserSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
+      const user = await storage.getUserByUsername(username);
+      
+      if (!user || user.password !== password) {
+        return res.status(401).json({ message: 'Invalid credentials' });
       }
       
-      const user = await storage.createUser(validation.data);
-      res.status(201).json(user);
+      // Don't send password back to client
+      const { password: _, ...userWithoutPassword } = user;
+      
+      return res.status(200).json(userWithoutPassword);
     } catch (error) {
-      handleError(res, error);
+      console.error('Login error:', error);
+      return res.status(500).json({ message: 'Internal server error' });
     }
   });
 
-  app.patch("/api/users/:id", async (req, res) => {
+  // User Routes
+  app.get('/api/users', async (_req, res) => {
     try {
-      const id = Number(req.params.id);
-      const user = await storage.getUser(id);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const updatedUser = await storage.updateUser(id, req.body);
-      res.json(updatedUser);
+      const users = await storage.getUsers();
+      // Filter out passwords
+      const usersWithoutPasswords = users.map(({ password, ...user }) => user);
+      res.json(usersWithoutPasswords);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch users' });
     }
   });
 
-  // ===== Teams Routes =====
-  app.get("/api/teams", async (req, res) => {
+  app.get('/api/users/:id', async (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: 'Invalid user ID' });
+    }
+
+    try {
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Don't send password
+      const { password, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch user' });
+    }
+  });
+
+  app.post('/api/users', async (req, res) => {
+    try {
+      const userData = insertUserSchema.parse(req.body);
+      const newUser = await storage.createUser(userData);
+      
+      // Don't send password back
+      const { password, ...userWithoutPassword } = newUser;
+      res.status(201).json(userWithoutPassword);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid user data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create user' });
+    }
+  });
+
+  app.put('/api/users/:id', async (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: 'Invalid user ID' });
+    }
+
+    try {
+      const userData = req.body;
+      const updatedUser = await storage.updateUser(userId, userData);
+      
+      if (!updatedUser) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Don't send password back
+      const { password, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to update user' });
+    }
+  });
+
+  app.delete('/api/users/:id', async (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: 'Invalid user ID' });
+    }
+
+    try {
+      const success = await storage.deleteUser(userId);
+      if (!success) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to delete user' });
+    }
+  });
+
+  // Team Routes
+  app.get('/api/teams', async (_req, res) => {
     try {
       const teams = await storage.getTeams();
       res.json(teams);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch teams' });
     }
   });
 
-  app.get("/api/teams/:id", async (req, res) => {
+  app.get('/api/teams/:id', async (req, res) => {
+    const teamId = parseInt(req.params.id);
+    if (isNaN(teamId)) {
+      return res.status(400).json({ message: 'Invalid team ID' });
+    }
+
     try {
-      const team = await storage.getTeam(Number(req.params.id));
+      const team = await storage.getTeam(teamId);
       if (!team) {
-        return res.status(404).json({ error: "Team not found" });
+        return res.status(404).json({ message: 'Team not found' });
       }
+      
       res.json(team);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch team' });
     }
   });
 
-  app.post("/api/teams", async (req, res) => {
+  app.post('/api/teams', async (req, res) => {
     try {
-      const validation = validateRequest(insertTeamSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
+      const teamData = insertTeamSchema.parse(req.body);
+      const newTeam = await storage.createTeam(teamData);
+      res.status(201).json(newTeam);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid team data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create team' });
+    }
+  });
+
+  app.put('/api/teams/:id', async (req, res) => {
+    const teamId = parseInt(req.params.id);
+    if (isNaN(teamId)) {
+      return res.status(400).json({ message: 'Invalid team ID' });
+    }
+
+    try {
+      const teamData = req.body;
+      const updatedTeam = await storage.updateTeam(teamId, teamData);
+      
+      if (!updatedTeam) {
+        return res.status(404).json({ message: 'Team not found' });
       }
       
-      const team = await storage.createTeam(validation.data);
-      res.status(201).json(team);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.patch("/api/teams/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const team = await storage.getTeam(id);
-      if (!team) {
-        return res.status(404).json({ error: "Team not found" });
-      }
-
-      const updatedTeam = await storage.updateTeam(id, req.body);
       res.json(updatedTeam);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to update team' });
     }
   });
 
-  app.delete("/api/teams/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const team = await storage.getTeam(id);
-      if (!team) {
-        return res.status(404).json({ error: "Team not found" });
-      }
+  app.delete('/api/teams/:id', async (req, res) => {
+    const teamId = parseInt(req.params.id);
+    if (isNaN(teamId)) {
+      return res.status(400).json({ message: 'Invalid team ID' });
+    }
 
-      await storage.deleteTeam(id);
+    try {
+      const success = await storage.deleteTeam(teamId);
+      if (!success) {
+        return res.status(404).json({ message: 'Team not found' });
+      }
+      
       res.status(204).send();
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to delete team' });
     }
   });
 
-  // ===== Team Roles Routes =====
-  app.get("/api/teams/:teamId/roles", async (req, res) => {
+  // Role Routes
+  app.get('/api/roles', async (_req, res) => {
     try {
-      const teamId = Number(req.params.teamId);
-      const team = await storage.getTeam(teamId);
-      if (!team) {
-        return res.status(404).json({ error: "Team not found" });
-      }
-
-      const roles = await storage.getTeamRoles(teamId);
+      const roles = await storage.getRoles();
       res.json(roles);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch roles' });
     }
   });
 
-  app.post("/api/teams/:teamId/roles", async (req, res) => {
-    try {
-      const teamId = Number(req.params.teamId);
-      const team = await storage.getTeam(teamId);
-      if (!team) {
-        return res.status(404).json({ error: "Team not found" });
-      }
+  app.get('/api/teams/:teamId/roles', async (req, res) => {
+    const teamId = parseInt(req.params.teamId);
+    if (isNaN(teamId)) {
+      return res.status(400).json({ message: 'Invalid team ID' });
+    }
 
-      const roleData = { ...req.body, teamId };
-      const validation = validateRequest(insertTeamRoleSchema, roleData);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
+    try {
+      const roles = await storage.getRolesByTeam(teamId);
+      res.json(roles);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch roles for team' });
+    }
+  });
+
+  app.post('/api/roles', async (req, res) => {
+    try {
+      const roleData = insertRoleSchema.parse(req.body);
+      const newRole = await storage.createRole(roleData);
+      res.status(201).json(newRole);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid role data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create role' });
+    }
+  });
+
+  app.put('/api/roles/:id', async (req, res) => {
+    const roleId = parseInt(req.params.id);
+    if (isNaN(roleId)) {
+      return res.status(400).json({ message: 'Invalid role ID' });
+    }
+
+    try {
+      const roleData = req.body;
+      const updatedRole = await storage.updateRole(roleId, roleData);
+      
+      if (!updatedRole) {
+        return res.status(404).json({ message: 'Role not found' });
       }
       
-      const role = await storage.createTeamRole(validation.data);
-      res.status(201).json(role);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.patch("/api/team-roles/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const role = await storage.getTeamRole(id);
-      if (!role) {
-        return res.status(404).json({ error: "Team role not found" });
-      }
-
-      const updatedRole = await storage.updateTeamRole(id, req.body);
       res.json(updatedRole);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to update role' });
     }
   });
 
-  app.delete("/api/team-roles/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const role = await storage.getTeamRole(id);
-      if (!role) {
-        return res.status(404).json({ error: "Team role not found" });
-      }
+  app.delete('/api/roles/:id', async (req, res) => {
+    const roleId = parseInt(req.params.id);
+    if (isNaN(roleId)) {
+      return res.status(400).json({ message: 'Invalid role ID' });
+    }
 
-      await storage.deleteTeamRole(id);
+    try {
+      const success = await storage.deleteRole(roleId);
+      if (!success) {
+        return res.status(404).json({ message: 'Role not found' });
+      }
+      
       res.status(204).send();
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to delete role' });
     }
   });
 
-  // ===== Team Members Routes =====
-  app.get("/api/teams/:teamId/members", async (req, res) => {
+  // Team Members Routes
+  app.get('/api/team-members', async (_req, res) => {
     try {
-      const teamId = Number(req.params.teamId);
-      const team = await storage.getTeam(teamId);
-      if (!team) {
-        return res.status(404).json({ error: "Team not found" });
-      }
+      const teamMembers = await storage.getTeamMembers();
+      res.json(teamMembers);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch team members' });
+    }
+  });
 
-      const members = await storage.getTeamMembers(teamId);
+  app.get('/api/teams/:teamId/members', async (req, res) => {
+    const teamId = parseInt(req.params.teamId);
+    if (isNaN(teamId)) {
+      return res.status(400).json({ message: 'Invalid team ID' });
+    }
+
+    try {
+      const members = await storage.getTeamMembersByTeam(teamId);
       res.json(members);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch team members' });
     }
   });
 
-  app.get("/api/users/:userId/teams", async (req, res) => {
-    try {
-      const userId = Number(req.params.userId);
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
+  app.get('/api/users/:userId/teams', async (req, res) => {
+    const userId = parseInt(req.params.userId);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: 'Invalid user ID' });
+    }
 
-      const teams = await storage.getUserTeams(userId);
+    try {
+      const teamMembers = await storage.getTeamMembersByUser(userId);
+      
+      // Get the team details for each membership
+      const teams = await Promise.all(
+        teamMembers.map(async (member) => {
+          const team = await storage.getTeam(member.teamId);
+          const role = await storage.getRole(member.roleId);
+          return {
+            ...member,
+            teamDetails: team,
+            roleDetails: role
+          };
+        })
+      );
+      
       res.json(teams);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch user teams' });
     }
   });
 
-  app.post("/api/team-members", async (req, res) => {
+  app.post('/api/team-members', async (req, res) => {
     try {
-      const validation = validateRequest(insertTeamMemberSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
-      }
-      
-      const member = await storage.addTeamMember(validation.data);
-      res.status(201).json(member);
+      const memberData = insertTeamMemberSchema.parse(req.body);
+      const newMember = await storage.createTeamMember(memberData);
+      res.status(201).json(newMember);
     } catch (error) {
-      handleError(res, error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid team member data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to add team member' });
     }
   });
 
-  app.patch("/api/team-members/:userId/:teamId", async (req, res) => {
+  app.put('/api/team-members/:id', async (req, res) => {
+    const memberId = parseInt(req.params.id);
+    if (isNaN(memberId)) {
+      return res.status(400).json({ message: 'Invalid team member ID' });
+    }
+
     try {
-      const userId = Number(req.params.userId);
-      const teamId = Number(req.params.teamId);
+      const memberData = req.body;
+      const updatedMember = await storage.updateTeamMember(memberId, memberData);
       
-      const updatedMember = await storage.updateTeamMember(userId, teamId, req.body);
       if (!updatedMember) {
-        return res.status(404).json({ error: "Team member not found" });
+        return res.status(404).json({ message: 'Team member not found' });
       }
       
       res.json(updatedMember);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to update team member' });
     }
   });
 
-  app.delete("/api/team-members/:userId/:teamId", async (req, res) => {
+  app.delete('/api/team-members/:id', async (req, res) => {
+    const memberId = parseInt(req.params.id);
+    if (isNaN(memberId)) {
+      return res.status(400).json({ message: 'Invalid team member ID' });
+    }
+
     try {
-      const userId = Number(req.params.userId);
-      const teamId = Number(req.params.teamId);
+      const success = await storage.deleteTeamMember(memberId);
+      if (!success) {
+        return res.status(404).json({ message: 'Team member not found' });
+      }
       
-      await storage.removeTeamMember(userId, teamId);
       res.status(204).send();
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to remove team member' });
     }
   });
 
-  // ===== Events Routes =====
-  app.get("/api/events", async (req, res) => {
+  // Services Routes
+  app.get('/api/services', async (_req, res) => {
     try {
-      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const services = await storage.getServices();
+      res.json(services);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch services' });
+    }
+  });
+
+  app.post('/api/services', async (req, res) => {
+    try {
+      const serviceData = insertServiceSchema.parse(req.body);
+      const newService = await storage.createService(serviceData);
+      res.status(201).json(newService);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid service data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create service' });
+    }
+  });
+
+  // Events Routes
+  app.get('/api/events', async (req, res) => {
+    try {
+      const { start, end } = req.query;
       
-      const events = await storage.getEvents({ startDate, endDate });
+      if (start && end) {
+        // If date range is provided, return events within range
+        const startDate = new Date(start as string);
+        const endDate = new Date(end as string);
+        
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+          return res.status(400).json({ message: 'Invalid date range' });
+        }
+        
+        const events = await storage.getEventsByDateRange(startDate, endDate);
+        return res.json(events);
+      }
+      
+      // Otherwise return all events
+      const events = await storage.getEvents();
       res.json(events);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch events' });
     }
   });
 
-  app.get("/api/events/:id", async (req, res) => {
+  app.get('/api/events/:id', async (req, res) => {
+    const eventId = parseInt(req.params.id);
+    if (isNaN(eventId)) {
+      return res.status(400).json({ message: 'Invalid event ID' });
+    }
+
     try {
-      const event = await storage.getEvent(Number(req.params.id));
+      const event = await storage.getEvent(eventId);
       if (!event) {
-        return res.status(404).json({ error: "Event not found" });
+        return res.status(404).json({ message: 'Event not found' });
       }
+      
       res.json(event);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch event' });
     }
   });
 
-  app.post("/api/events", async (req, res) => {
+  app.post('/api/events', async (req, res) => {
     try {
-      const validation = validateRequest(insertEventSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
+      const eventData = insertEventSchema.parse(req.body);
+      const newEvent = await storage.createEvent(eventData);
+      res.status(201).json(newEvent);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid event data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create event' });
+    }
+  });
+
+  app.put('/api/events/:id', async (req, res) => {
+    const eventId = parseInt(req.params.id);
+    if (isNaN(eventId)) {
+      return res.status(400).json({ message: 'Invalid event ID' });
+    }
+
+    try {
+      const eventData = req.body;
+      const updatedEvent = await storage.updateEvent(eventId, eventData);
+      
+      if (!updatedEvent) {
+        return res.status(404).json({ message: 'Event not found' });
       }
       
-      const event = await storage.createEvent(validation.data);
-      res.status(201).json(event);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.patch("/api/events/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const event = await storage.getEvent(id);
-      if (!event) {
-        return res.status(404).json({ error: "Event not found" });
-      }
-
-      const updatedEvent = await storage.updateEvent(id, req.body);
       res.json(updatedEvent);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to update event' });
     }
   });
 
-  app.delete("/api/events/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const event = await storage.getEvent(id);
-      if (!event) {
-        return res.status(404).json({ error: "Event not found" });
-      }
+  app.delete('/api/events/:id', async (req, res) => {
+    const eventId = parseInt(req.params.id);
+    if (isNaN(eventId)) {
+      return res.status(400).json({ message: 'Invalid event ID' });
+    }
 
-      await storage.deleteEvent(id);
+    try {
+      const success = await storage.deleteEvent(eventId);
+      if (!success) {
+        return res.status(404).json({ message: 'Event not found' });
+      }
+      
       res.status(204).send();
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to delete event' });
     }
   });
 
-  // ===== Schedules Routes =====
-  app.get("/api/schedules", async (req, res) => {
+  // Schedule Routes
+  app.get('/api/schedules', async (req, res) => {
     try {
-      const filters: any = {};
+      const { start, end, teamId } = req.query;
       
-      if (req.query.teamId) filters.teamId = Number(req.query.teamId);
-      if (req.query.eventId) filters.eventId = Number(req.query.eventId);
-      if (req.query.status) filters.status = req.query.status as string;
+      if (start && end) {
+        // If date range is provided, return schedules within range
+        const startDate = new Date(start as string);
+        const endDate = new Date(end as string);
+        
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+          return res.status(400).json({ message: 'Invalid date range' });
+        }
+        
+        if (teamId) {
+          // If team ID is also provided, filter by team
+          const teamIdNum = parseInt(teamId as string);
+          
+          if (isNaN(teamIdNum)) {
+            return res.status(400).json({ message: 'Invalid team ID' });
+          }
+          
+          const teamSchedules = await storage.getSchedulesByTeam(teamIdNum);
+          const filteredSchedules = teamSchedules.filter(schedule => {
+            const scheduleDate = new Date(schedule.date);
+            return scheduleDate >= startDate && scheduleDate <= endDate;
+          });
+          
+          return res.json(filteredSchedules);
+        }
+        
+        const schedules = await storage.getSchedulesByDateRange(startDate, endDate);
+        return res.json(schedules);
+      }
       
-      const schedules = await storage.getSchedules(filters);
+      if (teamId) {
+        // If only team ID is provided, get all schedules for that team
+        const teamIdNum = parseInt(teamId as string);
+        
+        if (isNaN(teamIdNum)) {
+          return res.status(400).json({ message: 'Invalid team ID' });
+        }
+        
+        const teamSchedules = await storage.getSchedulesByTeam(teamIdNum);
+        return res.json(teamSchedules);
+      }
+      
+      // Otherwise return all schedules
+      const schedules = await storage.getSchedules();
       res.json(schedules);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch schedules' });
     }
   });
 
-  app.get("/api/schedules/:id", async (req, res) => {
+  app.get('/api/schedules/:id', async (req, res) => {
+    const scheduleId = parseInt(req.params.id);
+    if (isNaN(scheduleId)) {
+      return res.status(400).json({ message: 'Invalid schedule ID' });
+    }
+
     try {
-      const schedule = await storage.getSchedule(Number(req.params.id));
+      const schedule = await storage.getSchedule(scheduleId);
       if (!schedule) {
-        return res.status(404).json({ error: "Schedule not found" });
+        return res.status(404).json({ message: 'Schedule not found' });
       }
+      
       res.json(schedule);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch schedule' });
     }
   });
 
-  app.post("/api/schedules", async (req, res) => {
+  app.post('/api/schedules', async (req, res) => {
     try {
-      const validation = validateRequest(insertScheduleSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
+      const scheduleData = insertScheduleSchema.parse(req.body);
+      const newSchedule = await storage.createSchedule(scheduleData);
+      res.status(201).json(newSchedule);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid schedule data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create schedule' });
+    }
+  });
+
+  app.put('/api/schedules/:id', async (req, res) => {
+    const scheduleId = parseInt(req.params.id);
+    if (isNaN(scheduleId)) {
+      return res.status(400).json({ message: 'Invalid schedule ID' });
+    }
+
+    try {
+      const scheduleData = req.body;
+      const updatedSchedule = await storage.updateSchedule(scheduleId, scheduleData);
+      
+      if (!updatedSchedule) {
+        return res.status(404).json({ message: 'Schedule not found' });
       }
       
-      const schedule = await storage.createSchedule(validation.data);
-      res.status(201).json(schedule);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.patch("/api/schedules/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const schedule = await storage.getSchedule(id);
-      if (!schedule) {
-        return res.status(404).json({ error: "Schedule not found" });
-      }
-
-      const updatedSchedule = await storage.updateSchedule(id, req.body);
       res.json(updatedSchedule);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to update schedule' });
     }
   });
 
-  app.delete("/api/schedules/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const schedule = await storage.getSchedule(id);
-      if (!schedule) {
-        return res.status(404).json({ error: "Schedule not found" });
-      }
+  app.delete('/api/schedules/:id', async (req, res) => {
+    const scheduleId = parseInt(req.params.id);
+    if (isNaN(scheduleId)) {
+      return res.status(400).json({ message: 'Invalid schedule ID' });
+    }
 
-      await storage.deleteSchedule(id);
+    try {
+      const success = await storage.deleteSchedule(scheduleId);
+      if (!success) {
+        return res.status(404).json({ message: 'Schedule not found' });
+      }
+      
       res.status(204).send();
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to delete schedule' });
     }
   });
 
-  // ===== Schedule Assignments Routes =====
-  app.get("/api/schedules/:scheduleId/assignments", async (req, res) => {
+  // Schedule Details Routes
+  app.get('/api/schedule-details', async (req, res) => {
     try {
-      const scheduleId = Number(req.params.scheduleId);
-      const schedule = await storage.getSchedule(scheduleId);
-      if (!schedule) {
-        return res.status(404).json({ error: "Schedule not found" });
+      const { scheduleId, volunteerId } = req.query;
+      
+      if (scheduleId) {
+        const scheduleIdNum = parseInt(scheduleId as string);
+        
+        if (isNaN(scheduleIdNum)) {
+          return res.status(400).json({ message: 'Invalid schedule ID' });
+        }
+        
+        const details = await storage.getScheduleDetailsBySchedule(scheduleIdNum);
+        return res.json(details);
       }
-
-      const assignments = await storage.getScheduleAssignments(scheduleId);
-      res.json(assignments);
+      
+      if (volunteerId) {
+        const volunteerIdNum = parseInt(volunteerId as string);
+        
+        if (isNaN(volunteerIdNum)) {
+          return res.status(400).json({ message: 'Invalid volunteer ID' });
+        }
+        
+        const details = await storage.getScheduleDetailsByVolunteer(volunteerIdNum);
+        return res.json(details);
+      }
+      
+      const scheduleDetails = await storage.getScheduleDetails();
+      res.json(scheduleDetails);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch schedule details' });
     }
   });
 
-  app.get("/api/users/:userId/assignments", async (req, res) => {
+  app.post('/api/schedule-details', async (req, res) => {
     try {
-      const userId = Number(req.params.userId);
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const assignments = await storage.getUserAssignments(userId);
-      res.json(assignments);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.post("/api/schedule-assignments", async (req, res) => {
-    try {
-      const validation = validateRequest(insertScheduleAssignmentSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
-      }
+      const detailData = insertScheduleDetailSchema.parse(req.body);
       
-      // Check for conflicts
-      const scheduleId = validation.data.scheduleId;
-      const schedule = await storage.getSchedule(scheduleId);
+      // Check for scheduling conflicts
+      const schedule = await storage.getSchedule(detailData.scheduleId);
+      
       if (!schedule) {
-        return res.status(404).json({ error: "Schedule not found" });
+        return res.status(404).json({ message: 'Schedule not found' });
       }
       
-      const event = await storage.getEvent(schedule.eventId);
-      if (!event) {
-        return res.status(404).json({ error: "Event not found" });
-      }
+      const conflict = await storage.checkScheduleConflict(schedule.date, detailData.volunteerId);
       
-      const eventDate = new Date(event.date);
-      const eventEndTime = new Date(event.endTime).toTimeString().substring(0, 5);
-      const eventStartTime = new Date(event.date).toTimeString().substring(0, 5);
-      
-      const conflict = await storage.detectScheduleConflicts(
-        validation.data.userId, 
-        eventDate, 
-        eventStartTime,
-        eventEndTime
-      );
-      
-      if (conflict.hasConflict) {
-        return res.status(409).json({ 
-          error: "Schedule conflict detected", 
-          conflicts: conflict.conflictingAssignments 
+      if (conflict) {
+        // If conflict exists, return error with conflict details
+        const conflictSchedule = await storage.getSchedule(conflict.scheduleId);
+        const conflictRole = await storage.getRole(conflict.roleId);
+        const conflictTeam = await storage.getTeam(conflictSchedule.teamId);
+        
+        return res.status(409).json({
+          message: 'Volunteer already scheduled for this date',
+          conflict: {
+            scheduleDetail: conflict,
+            schedule: conflictSchedule,
+            role: conflictRole,
+            team: conflictTeam
+          }
         });
       }
       
-      const assignment = await storage.createScheduleAssignment(validation.data);
-      res.status(201).json(assignment);
+      // Check volunteer availability
+      const isAvailable = await storage.checkAvailability(
+        detailData.volunteerId, 
+        schedule.date, 
+        schedule.serviceId
+      );
+      
+      if (!isAvailable) {
+        return res.status(400).json({
+          message: 'Volunteer not available for this date/service'
+        });
+      }
+      
+      const newDetail = await storage.createScheduleDetail(detailData);
+      res.status(201).json(newDetail);
     } catch (error) {
-      handleError(res, error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid schedule detail data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create schedule detail' });
     }
   });
 
-  app.patch("/api/schedule-assignments/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const assignment = await storage.getScheduleAssignment(id);
-      if (!assignment) {
-        return res.status(404).json({ error: "Schedule assignment not found" });
-      }
+  app.put('/api/schedule-details/:id', async (req, res) => {
+    const detailId = parseInt(req.params.id);
+    if (isNaN(detailId)) {
+      return res.status(400).json({ message: 'Invalid schedule detail ID' });
+    }
 
-      const updatedAssignment = await storage.updateScheduleAssignment(id, req.body);
-      res.json(updatedAssignment);
+    try {
+      const detailData = req.body;
+      const updatedDetail = await storage.updateScheduleDetail(detailId, detailData);
+      
+      if (!updatedDetail) {
+        return res.status(404).json({ message: 'Schedule detail not found' });
+      }
+      
+      res.json(updatedDetail);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to update schedule detail' });
     }
   });
 
-  app.delete("/api/schedule-assignments/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const assignment = await storage.getScheduleAssignment(id);
-      if (!assignment) {
-        return res.status(404).json({ error: "Schedule assignment not found" });
-      }
+  app.delete('/api/schedule-details/:id', async (req, res) => {
+    const detailId = parseInt(req.params.id);
+    if (isNaN(detailId)) {
+      return res.status(400).json({ message: 'Invalid schedule detail ID' });
+    }
 
-      await storage.deleteScheduleAssignment(id);
+    try {
+      const success = await storage.deleteScheduleDetail(detailId);
+      if (!success) {
+        return res.status(404).json({ message: 'Schedule detail not found' });
+      }
+      
       res.status(204).send();
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to delete schedule detail' });
     }
   });
 
-  // ===== Availability Rules Routes =====
-  app.get("/api/users/:userId/availability", async (req, res) => {
+  // Availability Rules Routes
+  app.get('/api/availability-rules', async (req, res) => {
     try {
-      const userId = Number(req.params.userId);
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
+      const { userId } = req.query;
+      
+      if (userId) {
+        const userIdNum = parseInt(userId as string);
+        
+        if (isNaN(userIdNum)) {
+          return res.status(400).json({ message: 'Invalid user ID' });
+        }
+        
+        const rules = await storage.getAvailabilityRulesByUser(userIdNum);
+        return res.json(rules);
       }
-
-      const rules = await storage.getAvailabilityRules(userId);
+      
+      const rules = await storage.getAvailabilityRules();
       res.json(rules);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch availability rules' });
     }
   });
 
-  app.post("/api/availability-rules", async (req, res) => {
+  app.post('/api/availability-rules', async (req, res) => {
     try {
-      const validation = validateRequest(insertAvailabilityRuleSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
+      const ruleData = insertAvailabilityRuleSchema.parse(req.body);
+      const newRule = await storage.createAvailabilityRule(ruleData);
+      res.status(201).json(newRule);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid rule data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create availability rule' });
+    }
+  });
+
+  app.delete('/api/availability-rules/:id', async (req, res) => {
+    const ruleId = parseInt(req.params.id);
+    if (isNaN(ruleId)) {
+      return res.status(400).json({ message: 'Invalid rule ID' });
+    }
+
+    try {
+      const success = await storage.deleteAvailabilityRule(ruleId);
+      if (!success) {
+        return res.status(404).json({ message: 'Rule not found' });
       }
       
-      const rule = await storage.createAvailabilityRule(validation.data);
-      res.status(201).json(rule);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.patch("/api/availability-rules/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const rule = await Promise.resolve(
-        Array.from(await storage.getAvailabilityRules(req.body.userId || 0))
-          .find(r => r.id === id)
-      );
-      
-      if (!rule) {
-        return res.status(404).json({ error: "Availability rule not found" });
-      }
-
-      const updatedRule = await storage.updateAvailabilityRule(id, req.body);
-      res.json(updatedRule);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.delete("/api/availability-rules/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      await storage.deleteAvailabilityRule(id);
       res.status(204).send();
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to delete availability rule' });
     }
   });
 
-  // ===== Swap Requests Routes =====
-  app.get("/api/swap-requests", async (req, res) => {
+  // Swap Requests Routes
+  app.get('/api/swap-requests', async (req, res) => {
     try {
-      const filters: any = {};
+      const { requesterId, replacementId, status } = req.query;
       
-      if (req.query.requesterId) filters.requesterId = Number(req.query.requesterId);
-      if (req.query.status) filters.status = req.query.status as string;
+      if (requesterId) {
+        const requesterIdNum = parseInt(requesterId as string);
+        
+        if (isNaN(requesterIdNum)) {
+          return res.status(400).json({ message: 'Invalid requester ID' });
+        }
+        
+        const requests = await storage.getSwapRequestsByRequester(requesterIdNum);
+        return res.json(requests);
+      }
       
-      const requests = await storage.getSwapRequests(filters);
+      if (replacementId) {
+        const replacementIdNum = parseInt(replacementId as string);
+        
+        if (isNaN(replacementIdNum)) {
+          return res.status(400).json({ message: 'Invalid replacement ID' });
+        }
+        
+        const requests = await storage.getSwapRequestsByReplacement(replacementIdNum);
+        return res.json(requests);
+      }
+      
+      if (status === 'pending') {
+        const pendingRequests = await storage.getPendingSwapRequests();
+        return res.json(pendingRequests);
+      }
+      
+      const requests = await storage.getSwapRequests();
       res.json(requests);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to fetch swap requests' });
     }
   });
 
-  app.get("/api/swap-requests/:id", async (req, res) => {
+  app.post('/api/swap-requests', async (req, res) => {
     try {
-      const request = await storage.getSwapRequest(Number(req.params.id));
-      if (!request) {
-        return res.status(404).json({ error: "Swap request not found" });
-      }
-      res.json(request);
+      const requestData = insertSwapRequestSchema.parse(req.body);
+      const newRequest = await storage.createSwapRequest(requestData);
+      res.status(201).json(newRequest);
     } catch (error) {
-      handleError(res, error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid request data', errors: error.format() });
+      }
+      res.status(500).json({ message: 'Failed to create swap request' });
     }
   });
 
-  app.post("/api/swap-requests", async (req, res) => {
-    try {
-      const validation = validateRequest(insertSwapRequestSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
-      }
-      
-      const request = await storage.createSwapRequest(validation.data);
-      
-      // Create notification for the team leader
-      const schedule = await storage.getSchedule(request.scheduleId);
-      if (schedule && schedule.createdBy) {
-        await storage.createNotification({
-          userId: schedule.createdBy,
-          type: "swap_request",
-          title: "New Swap Request",
-          message: "A volunteer has requested a schedule swap",
-          relatedId: request.id,
-          isRead: false
-        });
-      }
-      
-      res.status(201).json(request);
-    } catch (error) {
-      handleError(res, error);
+  app.put('/api/swap-requests/:id', async (req, res) => {
+    const requestId = parseInt(req.params.id);
+    if (isNaN(requestId)) {
+      return res.status(400).json({ message: 'Invalid request ID' });
     }
-  });
 
-  app.patch("/api/swap-requests/:id", async (req, res) => {
     try {
-      const id = Number(req.params.id);
-      const request = await storage.getSwapRequest(id);
-      if (!request) {
-        return res.status(404).json({ error: "Swap request not found" });
-      }
-
-      const updatedRequest = await storage.updateSwapRequest(id, req.body);
+      const requestData = req.body;
+      const updatedRequest = await storage.updateSwapRequest(requestId, requestData);
       
-      // Create notification for the requester about status update
-      if (req.body.status && req.body.status !== request.status) {
-        await storage.createNotification({
-          userId: request.requesterId,
-          type: "swap_request_update",
-          title: `Swap Request ${req.body.status === 'approved' ? 'Approved' : 'Rejected'}`,
-          message: `Your swap request has been ${req.body.status}`,
-          relatedId: request.id,
-          isRead: false
-        });
+      if (!updatedRequest) {
+        return res.status(404).json({ message: 'Swap request not found' });
+      }
+      
+      // If the request is approved, update the schedule detail
+      if (updatedRequest.status === 'approved') {
+        const scheduleDetail = await storage.getScheduleDetail(updatedRequest.scheduleDetailId);
+        
+        if (scheduleDetail) {
+          await storage.updateScheduleDetail(scheduleDetail.id, {
+            volunteerId: updatedRequest.replacementId
+          });
+        }
       }
       
       res.json(updatedRequest);
     } catch (error) {
-      handleError(res, error);
+      res.status(500).json({ message: 'Failed to update swap request' });
     }
   });
-
-  app.delete("/api/swap-requests/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const request = await storage.getSwapRequest(id);
-      if (!request) {
-        return res.status(404).json({ error: "Swap request not found" });
-      }
-
-      await storage.deleteSwapRequest(id);
-      res.status(204).send();
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  // ===== Notifications Routes =====
-  app.get("/api/users/:userId/notifications", async (req, res) => {
-    try {
-      const userId = Number(req.params.userId);
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const notifications = await storage.getNotifications(userId);
-      res.json(notifications);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.get("/api/users/:userId/unread-notifications", async (req, res) => {
-    try {
-      const userId = Number(req.params.userId);
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const notifications = await storage.getUnreadNotifications(userId);
-      res.json(notifications);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.post("/api/notifications", async (req, res) => {
-    try {
-      const validation = validateRequest(insertNotificationSchema, req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Validation error", details: validation.error });
-      }
-      
-      const notification = await storage.createNotification(validation.data);
-      res.status(201).json(notification);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.patch("/api/notifications/:id/read", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      const success = await storage.markNotificationAsRead(id);
-      if (!success) {
-        return res.status(404).json({ error: "Notification not found" });
-      }
-      res.status(204).send();
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  app.delete("/api/notifications/:id", async (req, res) => {
-    try {
-      const id = Number(req.params.id);
-      await storage.deleteNotification(id);
-      res.status(204).send();
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  // ===== Conflict Detection Routes =====
-  app.post("/api/conflicts/detect", async (req, res) => {
-    try {
-      const { userId, date, startTime, endTime } = req.body;
-      
-      if (!userId || !date || !startTime || !endTime) {
-        return res.status(400).json({ 
-          error: "Missing required parameters", 
-          details: "userId, date, startTime, and endTime are required" 
-        });
-      }
-      
-      const conflicts = await storage.detectScheduleConflicts(
-        Number(userId),
-        new Date(date),
-        startTime,
-        endTime
-      );
-      
-      res.json(conflicts);
-    } catch (error) {
-      handleError(res, error);
-    }
-  });
-
-  const httpServer = createServer(app);
 
   return httpServer;
 }
